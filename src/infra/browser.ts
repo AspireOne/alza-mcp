@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { resolveLocale, type Locale } from "./locale.js";
 import { log } from "./logger.js";
+import { redactSensitiveText, redactUrl, sensitiveUrlParts } from "./redaction.js";
 
 const require = createRequire(import.meta.url);
 
@@ -20,7 +22,18 @@ export interface BrowserOptions {
   headless?: boolean;
   /** Close the browser entirely after this many ms of inactivity. Default 3 min. */
   idleTtlMs?: number;
+  /** Playwright seam for deterministic browser lifecycle tests. */
+  driver?: BrowserDriver;
+  /** Browser installer seam for deterministic browser lifecycle tests. */
+  installer?: BrowserInstaller;
 }
+
+export interface BrowserDriver {
+  launch: typeof chromium.launch;
+  connectOverCDP: typeof chromium.connectOverCDP;
+}
+
+export type BrowserInstaller = () => Promise<void>;
 
 /**
  * Lazy, idle-shutdown browser facade.
@@ -40,11 +53,17 @@ export class AlzaBrowser {
   private readonly cdpUrl?: string;
   private readonly headless: boolean;
   private readonly idleTtlMs: number;
+  private readonly driver: BrowserDriver;
+  private readonly installer: BrowserInstaller;
 
   private launching?: Promise<Browser>;
+  private contextInitializing?: Promise<BrowserContext>;
+  private shutdownPromise?: Promise<void>;
+  private closePromise?: Promise<void>;
   private browser?: Browser;
   private context?: BrowserContext;
   private idleTimer?: NodeJS.Timeout;
+  private readonly idleWaiters = new Set<() => void>();
   private inFlight = 0;
   private closed = false;
 
@@ -52,6 +71,8 @@ export class AlzaBrowser {
     this.locale = resolveLocale(opts.baseUrl);
     this.cdpUrl = opts.cdpUrl ?? process.env.ALZA_CDP_URL;
     this.headless = opts.headless ?? process.env.ALZA_HEADLESS !== "false";
+    this.driver = opts.driver ?? chromium;
+    this.installer = opts.installer ?? installChromium;
     const envTtl = Number(process.env.ALZA_IDLE_TTL_MS);
     this.idleTtlMs =
       opts.idleTtlMs ?? (Number.isFinite(envTtl) && envTtl > 0 ? envTtl : DEFAULT_IDLE_BROWSER_TTL_MS);
@@ -76,34 +97,51 @@ export class AlzaBrowser {
     } finally {
       if (page) await page.close().catch(() => {});
       this.inFlight--;
-      if (this.inFlight === 0) this.scheduleIdleShutdown();
+      if (this.inFlight === 0) {
+        this.resolveIdleWaiters();
+        this.scheduleIdleShutdown();
+      }
     }
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
     this.closed = true;
     this.cancelIdleTimer();
-    await this.shutdownBrowser();
+    this.closePromise = (async () => {
+      await this.waitUntilIdle();
+      await this.shutdownBrowser();
+    })();
+    return this.closePromise;
   }
 
   private async shutdownBrowser(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+
     const ctx = this.context;
     const browser = this.browser;
     this.context = undefined;
     this.browser = undefined;
 
-    await ctx?.close().catch(() => {});
-
-    if (this.cdpUrl) {
-      // We attached to a user's Chrome — never close it.
-      return;
+    const shutdown = (async () => {
+      if (this.cdpUrl) return;
+      await ctx?.close().catch(() => {});
+      await browser?.close().catch(() => {});
+    })();
+    this.shutdownPromise = shutdown;
+    try {
+      await shutdown;
+    } finally {
+      if (this.shutdownPromise === shutdown) this.shutdownPromise = undefined;
     }
-    await browser?.close().catch(() => {});
   }
 
   private scheduleIdleShutdown(): void {
+    if (this.closed || this.cdpUrl) return;
     this.cancelIdleTimer();
     this.idleTimer = setTimeout(() => {
+      this.idleTimer = undefined;
+      if (this.inFlight !== 0 || this.closed) return;
       log.info("alza-browser: closing idle browser", { idleMs: this.idleTtlMs });
       void this.shutdownBrowser();
     }, this.idleTtlMs);
@@ -119,8 +157,30 @@ export class AlzaBrowser {
   }
 
   private async ensureContext(): Promise<BrowserContext> {
+    if (this.shutdownPromise) await this.shutdownPromise;
+    if (this.closed) throw new Error("browser closed");
     if (this.context) return this.context;
+    if (this.contextInitializing) return this.contextInitializing;
+
+    const initializing = this.createContext();
+    this.contextInitializing = initializing;
+    try {
+      const context = await initializing;
+      this.context = context;
+      return context;
+    } finally {
+      if (this.contextInitializing === initializing) this.contextInitializing = undefined;
+    }
+  }
+
+  private async createContext(): Promise<BrowserContext> {
     const browser = await this.ensureBrowser();
+    if (this.cdpUrl) {
+      const context = browser.contexts()[0];
+      if (!context) throw new Error("CDP browser has no existing browser context");
+      return context;
+    }
+
     const context = await browser.newContext({
       locale: this.locale.acceptLanguage.split(",")[0] ?? "cs-CZ",
       userAgent: HEADER_USER_AGENT,
@@ -143,7 +203,6 @@ export class AlzaBrowser {
       return route.continue();
     });
 
-    this.context = context;
     return context;
   }
 
@@ -153,20 +212,28 @@ export class AlzaBrowser {
 
     this.launching = (async () => {
       if (this.cdpUrl) {
-        log.info("alza-browser: connecting via CDP", { cdpUrl: this.cdpUrl });
-        const browser = await chromium.connectOverCDP(this.cdpUrl);
+        log.info("alza-browser: connecting via CDP", { cdpUrl: redactUrl(this.cdpUrl) });
+        let browser: Browser;
+        try {
+          browser = await this.driver.connectOverCDP(this.cdpUrl);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `CDP browser connection failed: ${redactSensitiveText(
+              message,
+              sensitiveUrlParts(this.cdpUrl)
+            )}`,
+            { cause: error }
+          );
+        }
         this.browser = browser;
+        this.watchBrowser(browser);
         return browser;
       }
       log.info("alza-browser: launching managed Chromium", { headless: this.headless });
       const browser = await this.launchChromiumWithFallback();
       this.browser = browser;
-      browser.on("disconnected", () => {
-        // External shutdown (crashed, killed by user) — clear refs so we can relaunch on next use.
-        log.info("alza-browser: chromium disconnected");
-        this.browser = undefined;
-        this.context = undefined;
-      });
+      this.watchBrowser(browser);
       return browser;
     })().finally(() => {
       this.launching = undefined;
@@ -188,7 +255,7 @@ export class AlzaBrowser {
       ],
     };
     try {
-      return await chromium.launch(launchArgs);
+      return await this.driver.launch(launchArgs);
     } catch (err) {
       const message = (err as Error)?.message ?? "";
       const isMissingBinary =
@@ -200,18 +267,36 @@ export class AlzaBrowser {
         "alza-browser: chromium not found — downloading headless-shell now (~92 MB, one-time). " +
           "Set ALZA_CDP_URL to skip the download and use your own Chrome."
       );
-      await ensureChromiumInstalled();
-      return chromium.launch(launchArgs);
+      await this.installer();
+      return this.driver.launch(launchArgs);
     }
+  }
+
+  private watchBrowser(browser: Browser): void {
+    browser.on("disconnected", () => {
+      if (this.browser !== browser) return;
+      log.info("alza-browser: chromium disconnected");
+      this.browser = undefined;
+      this.context = undefined;
+    });
+  }
+
+  private waitUntilIdle(): Promise<void> {
+    if (this.inFlight === 0) return Promise.resolve();
+    return new Promise((resolve) => this.idleWaiters.add(resolve));
+  }
+
+  private resolveIdleWaiters(): void {
+    for (const resolve of this.idleWaiters) resolve();
+    this.idleWaiters.clear();
   }
 }
 
-async function ensureChromiumInstalled(): Promise<void> {
+export async function installChromium(spawnProcess: typeof spawn = spawn): Promise<void> {
   let cliPath: string;
   try {
-    const path = await import("node:path");
     const pkgJsonPath = require.resolve("playwright/package.json");
-    cliPath = path.join(path.dirname(pkgJsonPath), "cli.js");
+    cliPath = join(dirname(pkgJsonPath), "cli.js");
   } catch (err) {
     throw new Error(
       "Cannot find Playwright CLI. Run `npm install playwright` and retry.",
@@ -219,9 +304,11 @@ async function ensureChromiumInstalled(): Promise<void> {
     );
   }
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(process.execPath, [cliPath, "install", "chromium", "--only-shell"], {
-      stdio: "inherit",
+    const child = spawnProcess(process.execPath, [cliPath, "install", "chromium", "--only-shell"], {
+      stdio: ["ignore", "pipe", "pipe"],
     });
+    child.stdout?.on("data", (chunk) => process.stderr.write(chunk));
+    child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code === 0) resolve();
