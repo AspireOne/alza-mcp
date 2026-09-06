@@ -5,6 +5,8 @@ interface Entry<V> {
 
 export class TtlCache<K, V> {
   private readonly store = new Map<K, Entry<V>>();
+  private readonly inFlight = new Map<K, Promise<V>>();
+  private generation = 0;
 
   constructor(
     private readonly ttlMs: number,
@@ -34,13 +36,27 @@ export class TtlCache<K, V> {
   async memoize(key: K, loader: () => Promise<V>): Promise<V> {
     const cached = this.get(key);
     if (cached !== undefined) return cached;
-    const value = await loader();
-    this.set(key, value);
-    return value;
+
+    const loading = this.inFlight.get(key);
+    if (loading) return loading;
+
+    const generation = this.generation;
+    const promise = loader()
+      .then((value) => {
+        if (this.generation === generation) this.set(key, value);
+        return value;
+      })
+      .finally(() => {
+        if (this.inFlight.get(key) === promise) this.inFlight.delete(key);
+      });
+    this.inFlight.set(key, promise);
+    return promise;
   }
 
   clear(): void {
+    this.generation++;
     this.store.clear();
+    this.inFlight.clear();
   }
 
   get size(): number {
