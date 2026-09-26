@@ -13,26 +13,27 @@ import { filterRequest, categories, parseRenderedSearch } from '../src/adapters/
 const bootstrap = '<script>var _pageData = {"isUserLogged":false,"categoryId":18845887,"configurationId":3,"data":{"categoryTypeId":1,"searchTerm":"disk"}};</script><a data-sort="0"></a><a data-sort="1"></a>';
 const card = (id: number) => `<div class="browsingitem" data-id="${id}" data-code="shared"><a class="name" href="/disk-d${id}.htm">Disk ${id}</a><div class="price"><span class="js-price-box__primary-price__value">1 234,-</span></div></div>`;
 function harness(pages: Array<{ ids: number[]; total: number; next: boolean }>, html = bootstrap) {
-  let authenticated = true, checks = 0; const requests: unknown[] = [];
-  const reader: Reader = { provider: 'browser', canPost: true, context: 'account:example', page: async url => ({ url, html, status: 200, headers: {} }), json: async (_, body) => {
+  let authenticated = true, checks = 0; const requests: unknown[] = [], pageOptions: Array<{ detail?: boolean; stock?: boolean } | undefined> = [];
+  const reader: Reader = { provider: 'browser', canPost: true, context: 'account:example', page: async (url, options) => { pageOptions.push(options); return { url, html, status: 200, headers: {} }; }, json: async (_, body) => {
     requests.push(body); const i = (body as {page: number}).page - 1, p = pages[i]!;
     return { d: { Count: p.total, Page: i + 1, Boxes: p.ids.map(card).join(''), PagerBottom: p.next ? '<a class="next"></a>' : '' } };
   } };
   const access: Access = { run: async <T>(op: Operation, work: (r: Reader) => Promise<T>, context?: string) => { checks++; if (context && context !== reader.context) fail('CONTEXT_CHANGED', 'changed'); if (!authenticated) fail('AUTH_REQUIRED', 'expired'); op.meta.auth.state = 'signed_in'; return work(reader); }, status: () => ({}), close: async () => {} };
-  return { research: new Research(configFromEnv({}), access, new Cursors('x'.repeat(64))), requests, expire: () => { authenticated = false; }, checks: () => checks };
+  return { research: new Research(configFromEnv({}), access, new Cursors('x'.repeat(64))), requests, pageOptions, expire: () => { authenticated = false; }, checks: () => checks };
 }
 const okData = (result: Awaited<ReturnType<Research['call']>>): any => { expect(result.status).not.toBe('error'); return 'data' in result ? result.data : undefined; };
 
 describe('research traversal contracts', () => {
   it('accepts a confirmed empty search even when Alza omits sorting controls', async () => {
     const h = harness([], '<script>var _pageData={"isUserLogged":false,"categoryId":1,"data":{"isSearch":true,"isEmpty":true,"searchTerm":"unmatched"}};</script>');
-    expect(await h.research.call('search_products', { query: 'unmatched' })).toMatchObject({ status: 'ok', data: { products: [], total: 0, exhausted: true, next_cursor: null } });
+    expect(await h.research.call('search_products', { query: 'unmatched' })).toMatchObject({ status: 'ok', data: { products: [], total: 0, sort_orders: [], exhausted: true, next_cursor: null } });
     expect(h.requests).toHaveLength(0);
   });
   it('retrieves every page, binds filters and auth, and proves exhaustion against total', async () => {
     const h = harness([{ ids: [1, 2], total: 3, next: true }, { ids: [3], total: 3, next: false }]);
     const first = await h.research.call('search_products', { category_id: 18845887, filters: { max_price: 4000 }, sort: 'price_asc', auth: 'required' });
     expect(first.status).toBe('ok'); const a = okData(first);
+    expect(a.sort_orders).toEqual(['relevance', 'price_asc']);
     const second = await h.research.call('search_products', { cursor: a.next_cursor }); const b = okData(second);
     expect(b.products.map((p: any) => p.id)).toEqual([3]); expect(b.exhausted).toBe(true); expect(b.next_cursor).toBeNull();
     expect(h.requests).toMatchObject([{ page: 1, maxPrice: 4000, sort: 1 }, { page: 2, maxPrice: 4000, sort: 1 }]);
@@ -60,6 +61,24 @@ describe('research traversal contracts', () => {
     const h = harness([{ ids: [1, 2], total: 2, next: false }]);
     expect(await h.research.call('get_product', { code: 'shared' })).toMatchObject({ status: 'error', error: { code: 'AMBIGUOUS_PRODUCT' } });
     expect(await h.research.call('search_products', { query: 'disk', filters: { facets: [{ id: 999, values: ['missing'] }] } })).toMatchObject({ status: 'error', error: { code: 'UNSUPPORTED_FILTER' } });
+  });
+  it('reports the available sorts when Alza omits the requested ordering', async () => {
+    const h = harness([]);
+    expect(await h.research.call('search_products', { query: 'gadget', sort: 'bestselling' })).toMatchObject({ status: 'error', error: { code: 'UNSUPPORTED_FILTER', sort_orders: ['relevance', 'price_asc'] } });
+    expect(h.requests).toHaveLength(0);
+  });
+  it('suggests child categories when Alza redirects a search to a category hub', async () => {
+    const html = '<script>var _pageData={"isUserLogged":false,"categoryId":18855843,"data":{}};</script><div data-testid="category-tiles"><div data-testid="category-tile"><a href="/chytre-osvetleni/18913998.htm">Chytré osvětlení</a></div><div data-testid="category-tile"><a href="/18855843-e19.htm">Promotion</a></div></div>';
+    const h = harness([], html), child = { id: 18913998, name: 'Chytré osvětlení', url: 'https://www.alza.cz/chytre-osvetleni/18913998.htm' };
+    expect(await h.research.call('search_products', { query: 'chytrá domácnost' })).toMatchObject({ status: 'error', error: { code: 'CATEGORY_NOT_LISTABLE', category_id: 18855843, suggested_categories: [child] } });
+    expect(await h.research.call('get_category', { category_id: 18855843 })).toMatchObject({ status: 'ok', data: { listing_supported: false, children: [child] } });
+    expect(h.requests).toHaveLength(0);
+  });
+  it('requests a hydrated stock control and sends only Alza’s advertised value', async () => {
+    const h = harness([{ ids: [1], total: 1, next: false }], `${bootstrap}<label>Skladem kdekoliv<input type="radio" value="1"></label>`);
+    expect(await h.research.call('search_products', { query: 'chytrý lokátor', filters: { in_stock: true } })).toMatchObject({ status: 'ok' });
+    expect(h.pageOptions).toContainEqual({ stock: true });
+    expect(h.requests).toMatchObject([{ availabilityType: 1 }]);
   });
   it('rejects a valid signed cursor after a server restart', async () => {
     const h = harness([{ ids: [1], total: 2, next: true }]); const first = okData(await h.research.call('search_products', { query: 'disk' }));

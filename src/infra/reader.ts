@@ -11,7 +11,7 @@ export interface Reader {
   readonly provider: Provider;
   readonly canPost: boolean;
   readonly context: string;
-  page(url: string, options?: { detail?: boolean }): Promise<Document>;
+  page(url: string, options?: { detail?: boolean; stock?: boolean }): Promise<Document>;
   json(url: string, body?: unknown): Promise<unknown>;
 }
 export interface Access {

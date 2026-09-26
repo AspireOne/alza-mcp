@@ -89,16 +89,23 @@ export class Research {
     const query: SearchQuery = previous?.query ?? { query: args.query as string | undefined, category_id: args.category_id as number | undefined, filters: args.filters as SearchQuery["filters"], sort: args.sort as SearchQuery["sort"] };
     const page = previous?.page ?? 1;
     const result = await this.cached(reader, op, `search:${JSON.stringify(query)}:${page}`, 60_000, async () => {
-      const doc = await reader.page(searchUrl(query));
+      const doc = await reader.page(searchUrl(query), { stock: query.filters?.in_stock });
       const bootstrap = pageData(doc.html), data = object(bootstrap.data);
+      const sorts = sortOrders(doc.html);
       if (data.isSearch === true && data.isEmpty === true && page === 1) {
         if (query.filters?.facets?.length || query.filters?.manufacturers?.length) fail("UNSUPPORTED_FILTER", "This empty search does not advertise the requested facet or manufacturer filters.");
-        return { products: [], total: 0, next: false, effectiveUrl: doc.url };
+        return { products: [], total: 0, next: false, effectiveUrl: doc.url, sorts };
+      }
+      const $ = load(doc.html);
+      if (!sorts.length && !$(".browsingitem").length && $('[data-testid="category-tiles"]').length) {
+        const suggested = categories(doc.html, true);
+        if (typeof bootstrap.categoryId !== "number" || !suggested.length) fail("SCHEMA_CHANGED", "Alza's category navigation could not be identified.");
+        fail("CATEGORY_NOT_LISTABLE", "Alza redirected this search to a category hub without product listings. Search a child category instead.", { category_id: bootstrap.categoryId, suggested_categories: suggested });
       }
       const body = filterRequest(doc.html, query, page), effectiveUrl = `${doc.url.split("#")[0]}${body.hash}`;
       const signedIn = op.meta.auth.state === 'signed_in';
       const parsed = reader.canPost ? parseFilter(await reader.json(`${BASE_URL}${FILTER_PATH}`, body), page, signedIn) : parseRenderedSearch((await reader.page(effectiveUrl)).html, page, query, signedIn);
-      return { ...parsed, effectiveUrl };
+      return { ...parsed, effectiveUrl, sorts };
     });
     for (const p of result.products) for (const offer of p.offers) {
       if (offer.kind === "effective" && op.meta.auth.state === "anonymous") offer.kind = "public";
@@ -114,7 +121,7 @@ export class Research {
     if (!result.next && result.total !== null && seen.size !== result.total || result.next && result.total !== null && seen.size >= result.total) errors.push(problem("INCOMPLETE_RESULTS", "Pagination and Alza's total count disagree."));
     if (result.total === null) op.meta.warnings.push({ code: "TOTAL_UNAVAILABLE", message: "This recovery renderer supplies pages but no trustworthy total count." });
     const next = result.next && !errors.length ? this.cursor({ kind: "search", query, page: page + 1, seen: [...seen], total: result.total, context: reader.context, auth: op.auth }) : null;
-    return { data: { query, effective_url: result.effectiveUrl, products: result.products, returned_count: result.products.length, total: result.total, page, next_cursor: next, exhausted: !result.next && !errors.length, snapshot: false }, errors };
+    return { data: { query, effective_url: result.effectiveUrl, sort_orders: result.sorts, products: result.products, returned_count: result.products.length, total: result.total, page, next_cursor: next, exhausted: !result.next && !errors.length, snapshot: false }, errors };
   }
   private async product(reader: Reader, op: Operation, args: Record<string, unknown>): Promise<Outcome> {
     const input = productSchema.parse(args);

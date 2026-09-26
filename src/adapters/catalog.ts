@@ -18,7 +18,7 @@ export function searchUrl(query: SearchQuery): string {
 }
 export function categories(html: string, children = false): Category[] {
   const $ = load(html), found = new Map<number, Category>();
-  const selectors = children ? ".category-tiles__categories a, .subCategoriesList a, .subCategories a, .subcategory a, [class*=subcategory] a" : 'li[class*="category-naviga"] a, .category-tree a, .subCategoriesList a';
+  const selectors = children ? '[data-testid="category-tile"] a, .category-tiles__categories a, .subCategoriesList a, .subCategories a, .subcategory a, [class*=subcategory] a' : 'li[class*="category-naviga"] a, .category-tree a, .subCategoriesList a';
   for (const el of $(selectors).toArray()) {
     const link = $(el), href = link.attr("href"), name = text(link.text());
     const match = href?.match(/\/(\d{4,})\.htm/);
@@ -82,8 +82,8 @@ export function filterRequest(html: string, query: SearchQuery, page: number): R
   const $ = load(html), bootstrap = pageData(html), data = object(bootstrap.data), filters = query.filters ?? {};
   if (typeof data.categoryTypeId !== "number" || typeof bootstrap.categoryId !== "number") fail("SCHEMA_CHANGED", "Alza's catalog filter bootstrap was not recognized.");
   if (query.category_id && bootstrap.categoryId !== query.category_id) fail("UNSUPPORTED_FILTER", "Alza did not apply the requested category restriction.");
-  const sort = SORT_CODES[query.sort ?? "relevance"];
-  if (!$("a[data-sort]").toArray().some(el => Number($(el).attr("data-sort")) === sort)) fail("UNSUPPORTED_FILTER", "This listing does not support the requested sort order.");
+  const requestedSort = query.sort ?? "relevance", sort = SORT_CODES[requestedSort], availableSorts = sortOrders(html);
+  if (!availableSorts.includes(requestedSort)) fail("UNSUPPORTED_FILTER", "This listing does not support the requested sort order.", { sort_orders: availableSorts });
   const available = facets(html);
   const parameters = (filters.facets ?? []).map(selected => {
     const facet = available.find(f => f.id === selected.id);

@@ -26,7 +26,7 @@ Session import is an offline administrative action. It validates a temporary pro
 
 ## Completeness and source fidelity
 
-Catalogue results use the filter response's count and paginator rather than guessing a result limit from the first page. Filters are discovered from the page bootstrap and advertised controls. Enum keys, range values, ordering and availability are sent in the storefront's own request format.
+Catalogue results use the filter response's count and paginator rather than guessing a result limit from the first page. Filters are discovered from the page bootstrap and advertised controls. Enum keys, range values, ordering and availability are sent in the storefront's own request format. Some search terms redirect to navigation-only category hubs, which cannot prove a complete product traversal. Alza renders the stock control after the initial HTML response on some listings, so a stock-filtered browser search waits briefly for that control before interpreting the page. Search results retain Alza's own relevance order.
 
 Continuation state retains seen product/review identities and the original query, count and account context. Signed tokens reference bounded in-memory traversal state. They are replayable within the state lifetime, but cannot resume after a server restart. Count changes, repeated identities and inconsistent terminal pages produce explicit incomplete results. Offset pagination cannot detect every possible same-count edit; the API therefore never promises snapshot isolation.
 

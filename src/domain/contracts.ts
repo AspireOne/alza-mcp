@@ -21,6 +21,9 @@ export interface Failure {
   stage?: string;
   retry_after_ms?: number;
   upstream_status?: number;
+  sort_orders?: Sort[];
+  category_id?: number;
+  suggested_categories?: Category[];
 }
 export type Result<T> =
   | { status: "ok"; data: T; meta: Metadata }
@@ -71,6 +74,7 @@ export interface SearchQuery { query?: string; category_id?: number; filters?: S
 export interface SearchPage {
   query: SearchQuery;
   effective_url: string;
+  sort_orders: Sort[];
   products: Listing[];
   returned_count: number;
   total: number | null;

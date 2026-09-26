@@ -9,7 +9,7 @@ import { Cursors } from "./infra/cursor.js";
 
 export const VERSION = "0.2.0";
 const descriptions: Record<ToolName, string> = {
-  search_products: "Search Alza.cz by text or category, with server-side filters. Follow next_cursor until exhausted=true to retrieve all results. Counts can change; inspect status, errors and warnings. A cursor fixes query and authentication. Use get_category to discover facet/manufacturer IDs and numeric range boundaries.",
+  search_products: "Search Alza.cz by text or category, with server-side filters and Alza's own result order. Follow next_cursor until exhausted=true to retrieve all results. Counts can change; inspect status and errors. The result advertises sort_orders; unavailable sorts return them in UNSUPPORTED_FILTER. CATEGORY_NOT_LISTABLE suggests child categories when Alza redirects to a hub. A cursor fixes query and authentication. Use get_category to discover facet/manufacturer IDs and numeric range boundaries.",
   get_product: "Read full product descriptions, specifications, displayed variant options, media, document links, offers, attributes and ratings. Use a numeric product ID or Alza URL; codes can be ambiguous across conditions. Optional sections limits output. A failed section makes the response partial.",
   get_product_reviews: "Read complete written reviews, pros/cons, variant, date, verified-purchase labels and rating statistics. Follow next_cursor to exhaust all reviews. Website ordering and translated reviews are preserved; rating count is distinct from written-review count.",
   list_categories: "List categories from Alza's current navigation. Use get_category for children and supported facets.",

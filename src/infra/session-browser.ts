@@ -2,7 +2,7 @@ import { chromium, type BrowserContext, type Page } from "patchright";
 import { readlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { hostname } from "node:os";
-import { classifyResponse, decodeJson } from "../adapters/html.js";
+import { classifyResponse, decodeJson, object, pageData } from "../adapters/html.js";
 import type { Config } from "./config.js";
 import { fail, FailureError } from "./failure.js";
 import type { Operation } from "./operation.js";
@@ -85,6 +85,10 @@ export class SessionBrowser {
           alzaUrl(page.url());
           verify(html);
           if (options?.detail) await hydrateDetail(page, remaining);
+          if (options?.stock && typeof object(pageData(html).data).categoryTypeId === "number") {
+            await page.locator("label").filter({ hasText: "Skladem kdekoliv" }).locator('input[type="radio"]').first()
+              .waitFor({ timeout: Math.min(remaining(), 5000) }).catch(() => {});
+          }
           html = await page.content();
           verify(html);
           const document: Document = { url: alzaUrl(page.url()), html, status: response?.status() ?? null, headers };

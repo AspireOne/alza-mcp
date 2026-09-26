@@ -32,7 +32,7 @@ In ChatGPT, create an MCP app with URL `https://your-alza-domain.example/mcp` an
 
 Set the client’s per-tool timeout to at least 130 seconds to allow [bounded recovery](ARCHITECTURE.md#access-and-recovery) to finish and report its result.
 
-The endpoint uses stateless JSON responses. GET/SSE sessions and DELETE session termination are not supported. Use a client that accepts Streamable HTTP JSON responses. Locally, use `http://127.0.0.1:3000/mcp`.
+The endpoint uses stateless JSON responses. GET/SSE sessions, DELETE session termination, and cancellation of an active call through a separate notification are not supported. Concurrent calls are accepted and queued for the single browser; a full queue returns `BUSY`, and a call that reaches its deadline while waiting returns `TIMEOUT`. Use a client that accepts Streamable HTTP JSON responses. Locally, use `http://127.0.0.1:3000/mcp`.
 
 For Coolify, deploy [compose.yaml](compose.yaml), set the environment values, and retain the `alza-data` volume. Route Cloudflare Tunnel to the application's port 3000. A tunnel on the host can use `http://127.0.0.1:3000`; a tunnel container must share the application's Docker network and use `http://alza:3000`. Preserve the public Host header and set `ALZA_PUBLIC_URL` to that exact HTTPS origin. Expose only the application; both recovery services stay on the private Docker network. Cloudflare Access needs no additional client credential at the origin; use the Managed OAuth configuration above.
 
@@ -50,7 +50,7 @@ Use a Git-based Docker Compose application in Coolify. Coolify clones the select
 |---|---|
 | `list_categories` | Current category navigation. |
 | `get_category` | `category_id`; child categories, manufacturers, facets and supported sort orders. Some navigation pages do not support direct listings. |
-| `search_products` | `query` or `category_id`, optional filters and sort; one complete upstream page and a continuation cursor. |
+| `search_products` | `query` or `category_id`, optional filters and sort; one complete upstream page, supported `sort_orders`, and a continuation cursor. |
 | `get_product` | Exactly one of `product_id`, `url`, or `code`; optional `sections`. Codes can match multiple conditions, so numeric IDs are preferred. |
 | `get_product_reviews` | `product_id`, optional `limit` from 1 to 50; written reviews, statistics and a continuation cursor. |
 | `get_session_status` | Local browser, account-configuration, queue and recovery state. Does not verify a login. |
@@ -68,7 +68,7 @@ For example, start with:
 
 Then call the same tool with only `{"cursor":"<next_cursor>"}` until `exhausted` is true. Do not change query, filters, page size, or authentication during a traversal. Cursors expire after an hour and are invalidated by a server restart or account replacement. There is no fixed total-result cap and no giant `get_all` response.
 
-Price, manufacturer, condition, stock and parameter filters are applied by Alza. Get enum IDs and numeric range boundaries from `get_category`; numeric values use Alza's source units, which may differ from the displayed label. Unsupported filters fail explicitly.
+Price, manufacturer, condition, stock and parameter filters are applied by Alza. Get enum IDs and numeric range boundaries from `get_category`; numeric values use Alza's source units, which may differ from the displayed label. Unsupported sorts fail with the listing's `sort_orders`. If Alza redirects a search to a category hub without listings, `CATEGORY_NOT_LISTABLE` supplies `category_id` and `suggested_categories` for a narrower search. Other unsupported filters fail explicitly. Search results retain Alza's own order and relevance.
 
 Product sections are `description`, `specifications`, `variants`, `media`, `documents`, `offers`, `attributes`, and `ratings`. Each requested section is available, not provided by the page, or failed. Variant selectors expose their displayed options and price differences; these do not always include another product's ID. Search for that variant to retrieve its full detail. Document and media results are links, not downloaded files.
 
