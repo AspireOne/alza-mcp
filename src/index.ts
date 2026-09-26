@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   let closing = false;
   async function shutdown(): Promise<void> {
     if (closing) return; closing = true; log.info('server.stopping');
-    try { await closeTransport(); await application.close(); } catch { process.exitCode = 1; }
+    try { try { await closeTransport(); } finally { await application.close(); } } catch { process.exitCode = 1; }
   }
   process.once('SIGINT', () => void shutdown()); process.once('SIGTERM', () => void shutdown());
 }

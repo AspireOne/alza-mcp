@@ -53,11 +53,12 @@ export function parseProduct(html: string, url: string, id: number, signedIn: bo
         if (!variantId) continue;
         variants.set(variantId, { id: variantId, name: text(n.text()) || n.attr("title") || n.find("img").attr("alt") || "", url: alzaUrl(href) });
       }
-      if ($(".detailVariants").length && !variants.size) fail("SECTION_INCOMPLETE", "Variant options were present but could not be fully read.");
+      if ($(".detailVariants").length && !variants.size && (text($('.detailVariants').text()) || detail.hasVariants !== false)) fail("SECTION_INCOMPLETE", "Variant options were present but could not be fully read.");
       return variants.size ? available([...variants.values()]) : absent;
     },
     media: () => {
       const media: unknown[] = Array.isArray(ld.image) ? [...ld.image] : ld.image ? [ld.image] : [];
+      for (const el of $("#descAnnotation img[src]").toArray()) { const n = $(el); media.push({ url: n.attr("src"), title: n.attr("alt") ?? null, type: "description_image" }); }
       for (const el of $("#descAnnotation video, #descAnnotation iframe, .detailGallery video, .detailGallery iframe").toArray()) { const n = $(el); media.push({ url: n.attr("src") || n.find("source").attr("src"), title: n.attr("title") ?? null, type: el.tagName }); }
       return media.length ? available(media) : absent;
     },
@@ -76,20 +77,33 @@ export function parseProduct(html: string, url: string, id: number, signedIn: bo
       const main = $('.js-price-detail__main-price-box-wrapper').first();
       const display = text(main.find('.js-price-box__primary-price__value, [data-slot="pb-price"]').first().text()) || null;
       const amount = money(baseOffer.price) ?? (display ? money(display) : null);
-      if (amount) prices.push({ ...offer(amount, display, signedIn ? "effective" : "public"), currency, vat: "included" });
+      const displayedAmount = money(display);
+      if (amount && displayedAmount && Math.abs(Number(amount) - Number(displayedAmount)) > 1) fail("PRICE_CONFLICT", "The displayed primary price disagrees with the structured price beyond display rounding.");
+      const specifications = Array.isArray(baseOffer.priceSpecification) ? baseOffer.priceSpecification : [baseOffer.priceSpecification];
+      const vat = specifications.map(object).find(s => money(s.price) === amount && typeof s.valueAddedTaxIncluded === 'boolean')?.valueAddedTaxIncluded;
+      if (amount) prices.push({ ...offer(amount, display, signedIn ? "effective" : "public"), currency, vat: vat === true ? "included" : vat === false ? "excluded" : "unknown" });
       else if (main.length || Object.keys(baseOffer).length) fail("SCHEMA_CHANGED", "The effective product price could not be parsed.");
       const withoutVat = text(main.find('.js-secondary-price').text());
       if (withoutVat) { const parsed = money(withoutVat.replace(/bez DPH/i, "")); if (!parsed) fail("PARSE_ERROR", "The price without VAT could not be parsed."); prices.push({ ...offer(parsed, withoutVat, signedIn ? "effective" : "public"), currency, vat: "excluded" }); }
       for (const el of $('.js-price-detail__alternative-price-box-wrapper').toArray()) {
-        const n = $(el), display = text(n.find('[data-slot="pb-price"], .ads-pb__price-value').first().text()), amount = money(display);
+        const n = $(el);
+        // Financing interest and monthly installments are not product prices.
+        // Their displayed terms are retained in attributes instead.
+        if (n.find('[class*="ads-pb--instalments"], [data-gtm-p2="Leas"]').length) continue;
+        const display = text(n.find('[data-slot="pb-price"], .ads-pb__price-value').first().text()), amount = money(display);
         if (!amount && text(n.text())) fail("PARSE_ERROR", "An advertised conditional offer could not be parsed.");
         if (amount) prices.push({ ...offer(amount, display, "conditional"), currency, conditions: [text(n.text())], eligibility: "conditional", vat: "included" });
+      }
+      for (const raw of specifications) {
+        const spec = object(raw), referenceAmount = money(spec.price);
+        if (referenceAmount && /\/(ListPrice|StrikethroughPrice|MSRP)$/.test(String(spec.priceType))) prices.push({ ...offer(referenceAmount, null, 'reference'), currency: string(spec.priceCurrency) || currency, vat: spec.valueAddedTaxIncluded === true ? 'included' : spec.valueAddedTaxIncluded === false ? 'excluded' : 'unknown', eligibility: 'unknown' });
       }
       return prices.length ? available(prices) : absent;
     },
     attributes: () => {
       const { review, offers, additionalProperty, image, description, aggregateRating, ...attributes } = ld;
-      return available({ ...attributes, archive: detail.isArchiveCommodity === true, minimum_pieces: detail.minimumPcs ?? null, maximum_pieces: detail.maximumPcs ?? null, pieces_in_pack: detail.amountInPack ?? null, warranty: text($('#detailWarranty, .warranty').first().text()) || null });
+      const financing = $('.js-price-detail__alternative-price-box-wrapper').toArray().filter(el => $(el).find('[class*="ads-pb--instalments"], [data-gtm-p2="Leas"]').length).map(el => text($(el).text()));
+      return available({ ...attributes, archive: detail.isArchiveCommodity === true, minimum_pieces: detail.minimumPcs ?? null, maximum_pieces: detail.maximumPcs ?? null, pieces_in_pack: detail.amountInPack ?? null, warranty: text($('#detailWarranty, .warranty').first().text()) || null, financing_displays: financing });
     },
     ratings: () => ld.aggregateRating ? available(ld.aggregateRating) : absent,
   };

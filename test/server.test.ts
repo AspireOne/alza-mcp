@@ -38,3 +38,19 @@ describe('MCP wire contracts', () => {
     expect((await client.callTool({ name: 'get_product', arguments: { product_id: 42 } })).isError).toBe(true);
   });
 });
+
+it('cancels an active stateless HTTP call through a separate authenticated notification', async () => {
+  let started!: () => void;
+  const waiting = new Promise<void>(r => { started = r; });
+  const config = { ...configFromEnv({}), timeoutMs: 1000 };
+  const service = new Research(config, { status: () => ({}), close: async () => {}, run: async op => {
+    started(); await new Promise<void>(resolve => op.signal.addEventListener('abort', () => resolve(), { once: true })); op.check(); throw new Error('Expected cancellation');
+  } }, new Cursors('x'.repeat(64)));
+  const http = httpServer(service, { token: 't'.repeat(40) }); await new Promise<void>(r => http.server.listen(0, '127.0.0.1', r)); cleanups.push(http.close);
+  const url = `http://127.0.0.1:${(http.server.address() as { port: number }).port}/mcp`;
+  const headers = { authorization: `Bearer ${'t'.repeat(40)}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+  const result = fetch(url, { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', id: 42, method: 'tools/call', params: { name: 'search_products', arguments: { query: 'disk' } } }) });
+  await waiting;
+  expect((await fetch(url, { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 42 } }) })).status).toBe(202);
+  expect(await (await result).json()).toMatchObject({ result: { isError: true, structuredContent: { status: 'error', error: { code: 'CANCELLED' } } } });
+});

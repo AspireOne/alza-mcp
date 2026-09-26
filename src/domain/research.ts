@@ -7,10 +7,10 @@ import { Cursors } from "../infra/cursor.js";
 import { TtlCache } from "../infra/cache.js";
 import { fail, failureOf } from "../infra/failure.js";
 import { BASE_URL, FILTER_PATH, WEB_API, productId, productUrl } from "../infra/urls.js";
-import { categories, facets, manufacturers, filterRequest, parseFilter, parseRenderedSearch, searchUrl } from "../adapters/catalog.js";
+import { categories, facets, manufacturers, sortOrders, filterRequest, parseFilter, parseRenderedSearch, searchUrl } from "../adapters/catalog.js";
 import { parseProduct } from "../adapters/product.js";
 import { parseReviews, reviewUrl } from "../adapters/reviews.js";
-import { object } from "../adapters/html.js";
+import { object, pageData } from "../adapters/html.js";
 import { productSchema, searchSchema, reviewsSchema, authSchema } from "./inputs.js";
 import type { AuthMode, Failure, Result, SearchPage, SearchQuery, ReviewsPage, Section } from "./contracts.js";
 import type { Config } from "../infra/config.js";
@@ -58,9 +58,9 @@ export class Research {
           case "get_category": return { data: await this.cached(reader, op, `category:${args.category_id}`, 86_400_000, async () => {
             const doc = await reader.page(searchUrl({ category_id: args.category_id as number }));
             const $ = load(doc.html);
-            // Validate identity and filter support against the same bootstrap used for search.
-            filterRequest(doc.html, { category_id: args.category_id as number }, 1);
-            return { id: args.category_id, name: $("h1").first().text().trim(), url: doc.url, children: categories(doc.html, true), facets: facets(doc.html), manufacturers: manufacturers(doc.html), sort_orders: ["relevance", "bestselling", "price_asc", "price_desc", "rating", "newest"] };
+            if (pageData(doc.html).categoryId !== args.category_id) fail("CATEGORY_ID_MISMATCH", "The page does not describe the requested category.");
+            const sorts = sortOrders(doc.html);
+            return { id: args.category_id, name: $("h1").first().text().trim(), url: doc.url, children: categories(doc.html, true), facets: facets(doc.html), manufacturers: manufacturers(doc.html), sort_orders: sorts, listing_supported: sorts.length > 0 };
           }) };
           default: return fail("INVALID_INPUT", "Unknown research tool.");
         }
@@ -73,7 +73,8 @@ export class Research {
   private async cached<T>(reader: Reader, op: Operation, key: string, ttl: number, loader: () => Promise<T>): Promise<T> {
     const cacheKey = `${reader.context}:${reader.provider}:${key}`, cached = this.cache.get(cacheKey);
     if (cached && Date.now() - cached.at < ttl) {
-      op.meta.cache = { hit: true, age_ms: Date.now() - cached.at }; op.meta.fetched_at = new Date(cached.at).toISOString(); op.meta.sources.push(...cached.sources);
+      op.meta.cache = { hit: true, age_ms: Math.max(op.meta.cache.age_ms, Date.now() - cached.at) };
+      op.meta.fetched_at = new Date(Math.min(Date.parse(op.meta.fetched_at), cached.at)).toISOString(); op.meta.sources.push(...cached.sources);
       return structuredClone(cached.value) as T;
     }
     const result = await loader();
@@ -89,11 +90,21 @@ export class Research {
     const page = previous?.page ?? 1;
     const result = await this.cached(reader, op, `search:${JSON.stringify(query)}:${page}`, 60_000, async () => {
       const doc = await reader.page(searchUrl(query));
+      const bootstrap = pageData(doc.html), data = object(bootstrap.data);
+      if (data.isSearch === true && data.isEmpty === true && page === 1) {
+        if (query.filters?.facets?.length || query.filters?.manufacturers?.length) fail("UNSUPPORTED_FILTER", "This empty search does not advertise the requested facet or manufacturer filters.");
+        return { products: [], total: 0, next: false, effectiveUrl: doc.url };
+      }
       const body = filterRequest(doc.html, query, page), effectiveUrl = `${doc.url.split("#")[0]}${body.hash}`;
       const parsed = reader.canPost ? parseFilter(await reader.json(`${BASE_URL}${FILTER_PATH}`, body), page) : parseRenderedSearch((await reader.page(effectiveUrl)).html, page, query);
       return { ...parsed, effectiveUrl };
     });
-    for (const p of result.products) for (const offer of p.offers) if (offer.kind === "effective" && op.meta.auth.state === "anonymous") offer.kind = "public";
+    for (const p of result.products) for (const offer of p.offers) {
+      if (offer.kind === "effective" && op.meta.auth.state === "anonymous") offer.kind = "public";
+      // Company accounts can change listing VAT presentation; the card alone
+      // does not prove the basis. Product detail carries explicit VAT offers.
+      if (op.meta.auth.state === "signed_in") offer.vat = "unknown";
+    }
     const errors: Failure[] = [];
     const seen = new Set(previous?.seen ?? []);
     if (result.products.some(p => seen.has(p.id))) errors.push(problem("RESULT_SET_CHANGED", "Previously returned product IDs appeared again. Restart the traversal to avoid missing products."));

@@ -21,7 +21,7 @@ export function listings(html: string): Listing[] {
     if (!Number.isSafeInteger(id) || id <= 0 || !text(link.text()) || !link.attr("href")) fail("PARSE_ERROR", "An Alza listing is missing its identity or name.");
     if (seen.has(id)) continue;
     const url = alzaUrl(link.attr("href")!);
-    if (productId(url) !== id) fail("PRODUCT_IDENTITY_MISMATCH", "A listing URL disagrees with its product ID.");
+    if (productId(url) !== id) fail("PRODUCT_ID_MISMATCH", "A listing URL disagrees with its product ID.");
     const displayed = text(card.find(".price .js-price-box__primary-price__value, .price .ads-pb__price-value").first().text());
     const amount = money(displayed);
     const priceTitle = text(card.find(".price .ads-pb__header").first().text());

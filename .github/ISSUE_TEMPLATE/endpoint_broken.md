@@ -9,8 +9,9 @@ labels: endpoint-broken
 - [ ] `search_products`
 - [ ] `get_product`
 - [ ] `get_product_reviews`
-- [ ] `find_pickup_points`
 - [ ] `list_categories`
+- [ ] `get_category`
+- [ ] `get_session_status`
 
 **Output of `npm run validate:api`**
 

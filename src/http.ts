@@ -4,14 +4,19 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { createServer } from "./server.js";
 import type { Research } from "./domain/research.js";
 import { log } from "./infra/logger.js";
+import { fail } from './infra/failure.js';
 
 const MAX_BODY = 1_048_576;
 export interface HttpOptions { token: string; publicUrl?: string; port?: number; host?: string }
 export function httpServer(research: Research, options: HttpOptions) {
-  if (options.token.length < 32) throw new Error("ALZA_MCP_TOKEN must contain at least 32 characters.");
+  if (options.token.length < 32) fail('CONFIGURATION_ERROR', "ALZA_MCP_TOKEN must contain at least 32 characters.");
   const expected = createHash('sha256').update(`Bearer ${options.token}`).digest();
   const origins = new Set([`http://localhost:${options.port ?? 3000}`, `http://127.0.0.1:${options.port ?? 3000}`]);
-  if (options.publicUrl) { const u = new URL(options.publicUrl); if (u.protocol !== 'https:' || u.username || u.password || u.pathname !== '/' || u.search || u.hash) throw new Error('ALZA_PUBLIC_URL must be an HTTPS origin.'); origins.add(u.origin); }
+  if (options.publicUrl) {
+    let u: URL;
+    try { u = new URL(options.publicUrl); } catch { fail('CONFIGURATION_ERROR', 'ALZA_PUBLIC_URL must be an HTTPS origin.'); }
+    if (u.protocol !== 'https:' || u.username || u.password || u.pathname !== '/' || u.search || u.hash) fail('CONFIGURATION_ERROR', 'ALZA_PUBLIC_URL must be an HTTPS origin.'); origins.add(u.origin);
+  }
   const hosts = new Set([...origins].map(o => new URL(o).host));
   const active = new Set<Promise<void>>();
   const cancellations = new Map<string | number, AbortController>();

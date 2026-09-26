@@ -51,6 +51,9 @@ export class AccessCoordinator implements Access {
         const started = Date.now(), deadline = Math.min(op.deadline - 2000, started + budget);
         let resource: { reader: Reader; dispose: () => Promise<void> } | undefined;
         try {
+          op.meta.cache = { hit: false, age_ms: 0 };
+          op.meta.fetched_at = new Date().toISOString();
+          op.meta.auth.state = "unverified";
           if (provider === "browser") {
             try { resource = await this.browser.reader(op, kind, deadline); }
             catch (error) {
@@ -82,6 +85,12 @@ export class AccessCoordinator implements Access {
           this.lastFailure = failure;
           op.meta.attempts.push({ provider, outcome: "failed", code: failure.code, duration_ms: Date.now() - started });
           log.warn("access.failed", { request_id: op.id, provider, code: failure.code });
+          if (provider === "flaresolverr" && failure.code === "AUTH_REQUIRED" && op.auth === "preferred") {
+            if (expectedContext) fail("CONTEXT_CHANGED", "Recovery lost the account context. Start a new traversal.");
+            kind = "anonymous";
+            op.meta.warnings.push({ code: "ANONYMOUS_FALLBACK", message: "Recovery could not preserve the login; trying public prices." });
+            continue;
+          }
           if (!RECOVERABLE.has(failure.code)) throw error;
         } finally { await resource?.dispose(); }
       }
@@ -96,7 +105,7 @@ export class AccessCoordinator implements Access {
   status(): unknown { return { browser: this.browser.status(), queue_size: this.queue.size, account_configured: !!this.store.account, last_failure: this.lastFailure, cooldown_until: Math.max(0, ...this.cooldowns.values()), recovery: { flaresolverr: this.config.flareUrl ? "configured" : "disabled", byparr: this.config.byparrUrl ? "configured" : "disabled" } }; }
   close(): Promise<void> {
     this.closed = true;
-    this.closing ??= (async () => { await Promise.allSettled([...this.active]); await this.browser.close(); await this.store.close(); })();
+    this.closing ??= (async () => { await Promise.allSettled([...this.active]); try { await this.browser.close(); } finally { await this.store.close(); } })();
     return this.closing;
   }
 }

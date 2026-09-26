@@ -1,9 +1,10 @@
-import { accountFromHtml, classifyResponse, decodeJson } from "../adapters/html.js";
+import { classifyResponse, decodeJson } from "../adapters/html.js";
 import type { Account } from "./state.js";
 import type { Reader } from "./reader.js";
 import type { Operation } from "./operation.js";
 import { fail, FailureError } from "./failure.js";
 import { alzaUrl, BASE_URL } from "./urls.js";
+import { verifyIdentity } from "./identity.js";
 
 export async function solverReader(provider: "flaresolverr" | "byparr", endpoint: string, op: Operation, deadline: number, account?: Account, cookies?: Array<Record<string, unknown>>): Promise<{ reader: Reader; dispose: () => Promise<void> }> {
   const session = `alza-${op.id}`;
@@ -27,7 +28,6 @@ export async function solverReader(provider: "flaresolverr" | "byparr", endpoint
       fail("RECOVERY_PROVIDER_UNAVAILABLE", `${provider} could not be reached or returned an invalid response.`, { retryable: true, stage: provider });
     }
   }
-  if (provider === "flaresolverr") await command({ cmd: "sessions.create", session });
   const dispose = async () => {
     if (provider !== "flaresolverr") return;
     // Cleanup has its own short budget, including when the operation was cancelled.
@@ -50,10 +50,7 @@ export async function solverReader(provider: "flaresolverr" | "byparr", endpoint
     provider, canPost: false, context: account ? `account:${account.generation}` : "anonymous",
     page: async url => {
       const doc = await read(url);
-      const actual = accountFromHtml(doc.html);
-      if (account && !actual.loggedIn) fail("AUTH_REQUIRED", "Recovery did not preserve the configured Alza login.");
-      if (account && actual.userId !== account.expectedUserId || !account && actual.loggedIn) fail("AUTH_ACCOUNT_MISMATCH", "Recovery returned an unexpected account context.");
-      op.meta.auth.state = account ? "signed_in" : "anonymous";
+      op.meta.auth.state = verifyIdentity(doc.html, account);
       return doc;
     },
     json: async (url, body) => {
@@ -62,6 +59,7 @@ export async function solverReader(provider: "flaresolverr" | "byparr", endpoint
     },
   };
   try {
+    if (provider === "flaresolverr") await command({ cmd: "sessions.create", session });
     if (account) await reader.page(BASE_URL);
     else op.meta.auth.state = "anonymous";
     return { reader, dispose };

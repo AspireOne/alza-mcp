@@ -1,97 +1,47 @@
 # Architecture
 
-This is a deeper companion to the [README](README.md) — written for contributors who want to understand *why* the code looks the way it does.
+The server is a single-account research adapter around the current Alza.cz storefront. The goal is evidence that an agent can inspect: product identity, complete traversal state, prices with their conditions, and explicit failures. The storefront is an undocumented dependency, so success means validating the response's meaning, not merely receiving HTTP 200.
 
-## The core problem
+## Access and recovery
 
-Alza.cz has no public consumer API. There are three official surfaces — Alza Trade (B2B marketplace, OAuth-gated), AlzaBox (parcel-locker logistics, OpenAPI'd), and the affiliate program (links/creatives only) — none of which lets a third party query the catalog.
+A managed, persistent Patchright Chromium profile is the primary data source. Running headed under Xvfb keeps the same browser mode on the home server and in container checks. Browser, operating-system and network identity still differ from a copied desktop session; copying cookies cannot guarantee trust or prevent a challenge.
 
-The mobile app's REST endpoints under `/Services/RestService.svc/` are the de-facto data plane and have been documented by community projects ([topmonks/hlidac-shopu](https://github.com/topmonks/hlidac-shopu/tree/main/actors/alza)). But Alza protects them with **Cloudflare Bot Management in challenge mode** — every call from a casual datacenter or residential client returns `403` with a JS challenge. Solving the challenge requires running JavaScript in a real browser.
+The browser executes storefront GET requests and the read-only catalogue filter POST in its own context. Page scripts may perform their normal browser traffic; the adapter exposes no transaction operations. It does not block media or replace Chromium's native user agent.
 
-Three approaches we considered and rejected:
+FlareSolverr is the second provider. It uses a temporary session, can receive scoped Alza cookies, and must independently verify an imported account. Byparr is the final anonymous provider. Its pinned version has no equivalent account-session import contract, so `auth=required` cannot use it. Both are private services, not proxies exposed to MCP clients.
 
-| Approach | Verdict |
-|---|---|
-| **HTTP + okhttp UA + `__cf_bm`/`VST` cookie handshake** (the topmonks recipe) | Works **only** through Apify's residential proxy network. Direct calls fail. Not viable for a free `npx` install. |
-| **TLS-impersonation libraries** (`cycletls`, `tls-client`, `curl-impersonate`) | Useful for sites where the challenge is downgrade-able by mobile UA + cookies. CF challenge mode requires JS execution; TLS fingerprinting alone isn't enough. |
-| **External CF-bypass services** (FlareSolverr, ZenRows) | Either a Docker dependency or a paid SaaS. Neither fits the "community OSS, one-line install" goal. |
+Recovery repeats a read operation through an eligible provider. It is bounded by a 90-second operation deadline: primary browser 20 seconds, FlareSolverr 30 seconds, Byparr 25 seconds, with the remainder for queueing and cleanup. One transient browser request retry shares the existing primary deadline. Rate limiting, account mismatch and parser failures are not treated as reasons to hammer another provider. Failed challenge recovery starts a five-minute context-specific cooldown. No human CAPTCHA flow or paid solver is required.
 
-The **fourth approach — drive a real browser via Playwright — is what we ship.** Cloudflare lets a real browser through; we just *are* one. The cost is a ~92 MB Chromium download on first install and a few seconds of latency per call. For a shopping assistant, that's the right trade.
+Solvers can return synthetic HTTP 200 and HTML wrappers around JSON. The adapter validates challenge markers and payload schemas instead of treating the solver status as Alza's original HTTP status. Recovery renderers cannot always prove selected filter state or hydrate all lazy product sections. Such limitations are explicit errors or failed sections, never unfiltered successful results.
 
-## Module map
+The dependency versions are fixed in [package-lock.json](package-lock.json), [Dockerfile](Dockerfile) and [compose.yaml](compose.yaml). Upgrade a browser package and its installed binary together; keep provider contract tests and live probes in the same change.
 
-```
-src/
-  index.ts             stdio entrypoint, signal handling
-  server.ts            buildServer() — wires deps, registers tools/resources/prompts
-  infra/
-    browser.ts         Playwright facade — lazy launch, page pool, CDP attach
-    locale.ts          base URL → Accept-Language + currency mapping
-    jsonld.ts          schema.org parser (Product, Offer, Review, AggregateRating)
-    cache.ts           tiny LRU + TTL with async memoize()
-    errors.ts          typed errors (NotFound, Upstream, Cloudflare, Handshake)
-    logger.ts          stderr-only structured JSON logging
-  domain/
-    catalog.ts         search / getProduct / listCategories
-    reviews.ts         getProductReviews via JSON-LD AggregateRating
-    pickup.ts          findPickupPoints — branch dataset + Nominatim geocoding
-    types.ts           shared domain types
-  data/branches.ts     curated AlzaShop showroom dataset
-  tools/               one file per MCP tool — Zod schema + handler in one place
-  resources/           alza:// URI handlers
-  prompts/             /find-product slash-command template
-```
+## Identity and state boundaries
 
-`infra/` knows about HTTP, cookies, browsers. `domain/` orchestrates business operations. `tools/` is the MCP surface — every tool delegates to `domain/`. The boundary keeps test friction down: domain modules can be exercised against fixtures; the browser layer is exercised end-to-end via `npm run validate:api`.
+A numeric Alza product ID identifies a listing. A product code can appear on new, opened or used listings with different IDs, so code resolution must establish a unique exact match. A canonical product request must return the requested ID before any detail is accepted.
 
-## Tool design
+Anonymous and imported-account profiles are separate. Account identity comes from a fresh first-party page's signed-in state and numeric user ID, not from cookie presence. This check also precedes cache hits. Account replacement creates a new generation, which invalidates prior cache and traversal contexts. A filesystem lock prevents two processes from owning the same profiles. Never launch a separate browser against these managed directories. Under the exclusive lease, stale Chromium locks from a replaced container can be removed; a live local browser PID is still rejected.
 
-Every tool returns:
+Session import is an offline administrative action. It validates a temporary profile before replacing the manifest. Filesystem protection matters because Chromium cookies and storage state remain credentials even when the MCP surface is read-only. Whole-profile import is an extraction path, not a promise that encrypted cookies, device-bound tokens or browser fingerprints are portable.
 
-1. `structuredContent` — typed JSON for the agent. This is what the LLM works with programmatically.
-2. `content[].text` — Markdown summary for the chat UI. This is what the human reading the conversation sees.
+## Completeness and source fidelity
 
-Every Zod field has `.describe()` — that text is what the model reads when deciding *whether and how* to call the tool. Vague descriptions = bad tool calls.
+Catalogue results use the filter response's count and paginator rather than guessing a result limit from the first page. Filters are discovered from the page bootstrap and advertised controls. Enum keys, range values, ordering and availability are sent in the storefront's own request format.
 
-All read tools carry `readOnlyHint: true`. Idempotent calls (resolved by ID, like `get_product`) carry `idempotentHint: true`. We have no destructive tools in v0.1; if/when we add `add_to_cart` etc., they'll carry `destructiveHint: true` and require an explicit `confirm: true` argument plus user-side elicitation.
+Continuation state retains seen product/review identities and the original query, count and account context. Signed tokens reference bounded in-memory traversal state. They are replayable within the state lifetime, but cannot resume after a server restart. Count changes, repeated identities and inconsistent terminal pages produce explicit incomplete results. Offset pagination cannot detect every possible same-count edit; the API therefore never promises snapshot isolation.
 
-## Caching
+Products combine structured data with rendered, lazy-loaded sections. Structured price precision and displayed rounding are both retained. Conditional offers are not promoted to effective prices. Variant-selector options preserve Alza's displayed labels and price differences; a linked numeric product ID is not invented when the selector supplies none. Reviews use the paginated review endpoint, not the SEO sample. Review statistics require context parameters from the actual product page.
 
-Per-process LRU + TTL, no external dependencies:
+Search and product caches last 60 seconds, reviews five minutes, and category data 24 hours. Keys include account generation and provider. Caches are bounded and private to the process; an anonymous operation cannot reuse an account price. This short lifetime reduces repeat traffic without pretending prices are immutable.
 
-| Key | TTL | Why |
-|---|---|---|
-| `search:{queryHash}` | 60 s | Same query a few seconds apart usually wants the same answer; new searches every minute is plenty fresh |
-| `product:{code}` | 15 min | Prices and availability shift, but rarely within a 15-min user session |
-| `category-tree` | 24 h | Top-level categories are stable for years |
-| `code → URL` (search-derived) | 1 h | Lets `get_product` skip the search step on warm calls |
+## Concurrency, transport and observability
 
-## Data hydration strategy
+One access queue owns browser activity. It permits eight waiting operations, each waiting at most five seconds. This prevents concurrent navigation or authentication contexts from interfering and makes overload visible as `BUSY`. Shutdown drains active work before releasing the profile lock.
 
-Search uses **DOM scraping** — `.browsingitem` cards on the search HTML page have stable `data-code`/`data-id` attributes plus reliably-classed inner anchors and price text. 24 cards per page; we strip sponsored items.
+Stdio and HTTP share the same research service. HTTP creates an MCP protocol instance per request and retains shared cancellation controllers for explicitly cancelled request IDs. It validates bearer credentials, Host and Origin, and limits request bodies. A socket disconnect does not implicitly cancel a read that may already be running.
 
-Product detail uses **JSON-LD** — every product page embeds a `Product` schema for SEO with `name`, `sku`, `brand`, `offers.{price, priceCurrency, availability}`, `aggregateRating.{ratingValue, reviewCount}`, and `image[]`. SEO data is more stable than DOM markup; Alza won't break Google rich snippets without a strong reason.
+Tool-level validation and upstream failures share the [result contract](src/domain/contracts.ts). Protocol-level malformed JSON and unknown tools remain transport/protocol errors. Text content contains the same complete JSON as structured content, so clients without structured-output rendering do not receive a shortened success story.
 
-Categories use a stable selector pattern (`li[class*="category-naviga"] a`) on the homepage MUI navigation list.
+Logs record request IDs, providers, durations and failure codes. Raw browser messages, cookies, HTML and imported storage are not logged. Health checks inspect only the local process; recovery and last-failure state are available through `get_session_status`.
 
-## Errors
-
-The browser layer throws `Error` for technical failures (timeouts, network); the domain layer throws typed errors (`NotFoundError`, `UpstreamError`); the MCP wrapper in `server.ts` converts everything to `{ isError: true, content: [...] }` so the agent sees a clean error message instead of a crash. We never let the server die — a flaky catalog endpoint should not take down the whole MCP.
-
-## Resilience
-
-Two things will inevitably break: Alza redesigning the catalog DOM, and Cloudflare tightening rules.
-
-For **DOM drift**, `npm run validate:api` runs every tool against live Alza and exits non-zero if any of them returns nothing or throws. Run it after major Alza app updates; once we have hosted infra it'll be a daily cron.
-
-For **bot-protection escalation**, the next levers are: switch to a stealth-patched Playwright fork (`patchright`, `rebrowser-playwright`); add proxy support (`HTTPS_PROXY` already plumbs through Playwright); document a `ALZA_CDP_URL` workflow that uses the user's own logged-in Chrome.
-
-## Anti-features
-
-Things we deliberately don't do:
-
-- **No login / cart / order.** Read-only forever (or until there's a clear demand we can fulfill safely).
-- **No undocumented mobile-API endpoint reuse.** Plenty of older scrapers do this; we lose them on every CF rule update. The browser path is more honest and more resilient.
-- **No background scraping or pre-fetching.** Every tool call corresponds to a user request.
-- **No analytics / telemetry.** Stderr logs only, structured JSON, opt-in via `ALZA_DEBUG=true`.
-- **No bundled proxy lists.** If you need a proxy, set `HTTPS_PROXY` yourself.
+The adapters own upstream interpretation; the research service owns traversal and cache context; the access coordinator owns browser/provider lifetimes. Changes should stay at the boundary that owns the failure. Avoid creating a generic scraping framework until another actual source needs one.

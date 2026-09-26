@@ -1,0 +1,42 @@
+services:
+  alza:
+    build: .
+    image: alza-mcp:0.2.0
+    restart: unless-stopped
+    environment:
+      ALZA_MCP_TOKEN: ${ALZA_MCP_TOKEN:?Set a random bearer token of at least 32 characters}
+      ALZA_PUBLIC_URL: ${ALZA_PUBLIC_URL:-}
+      ALZA_AUTH_MODE: ${ALZA_AUTH_MODE:-preferred}
+      ALZA_FLARESOLVERR_URL: http://flaresolverr:8191
+      ALZA_BYPARR_URL: http://byparr:8191
+    volumes:
+      - alza-data:/data
+    ports:
+      - 127.0.0.1:3000:3000
+    shm_size: 512mb
+    mem_limit: 2g
+    stop_grace_period: 100s
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - flaresolverr
+      - byparr
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2@sha256:c80ae007ce2ccdcd217a12426e4f039ef763ff90738c808d38810c3e59323767
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: warning
+      LOG_HTML: "false"
+      TZ: Europe/Prague
+    mem_limit: 1g
+    shm_size: 256mb
+  byparr:
+    image: ghcr.io/thephaseless/byparr:3.0.4@sha256:874f719518f617d03a60e03411fc5d090647e1a877041e81f8dc965927c7deb6
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: WARNING
+      TZ: Europe/Prague
+    mem_limit: 1g
+    shm_size: 256mb
+volumes:
+  alza-data:

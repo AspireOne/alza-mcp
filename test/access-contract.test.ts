@@ -62,3 +62,33 @@ describe("bounded operation scheduling", () => {
     finally { a.dispose(); b.dispose(); vi.useRealTimers(); }
   });
 });
+
+it('verifies the expected account and rejects signed-in data in anonymous mode', async () => {
+  const { verifyIdentity } = await import('../src/infra/identity.js');
+  const account = { version: 1 as const, expectedUserId: '123', generation: 'example', importedAt: '2026-09-26' };
+  const page = (logged: boolean, userId: string) => `<script>var _pageData=${JSON.stringify({ isUserLogged: logged, userId })};</script>`;
+  expect(verifyIdentity(page(true, '123'), account)).toBe('signed_in');
+  expect(() => verifyIdentity(page(true, '456'), account)).toThrow(/different Alza account/);
+  expect(() => verifyIdentity(page(false, ''), account)).toThrow(/expired/);
+  expect(() => verifyIdentity(page(true, '123'))).toThrow(/anonymous/);
+});
+
+it('keeps the previous account when an atomic import cannot replace its manifest', async () => {
+  const { mkdir, readFile, readdir } = await import('node:fs/promises');
+  const dir = await mkdtemp(join(tmpdir(), 'alza-import-'));
+  const store = new StateStore(dir);
+  try {
+    await store.open();
+    const first = join(dir, 'first'); await mkdir(first);
+    await store.commitImport({ cookies: [], origins: [] }, '123', first);
+    const before = await readFile(join(dir, 'account.json'), 'utf8');
+    // A directory at the temporary manifest path simulates a filesystem failure.
+    await mkdir(join(dir, 'account.json.tmp'));
+    const second = join(dir, 'second'); await mkdir(second);
+    await expect(store.commitImport({ cookies: [], origins: [] }, '456', second)).rejects.toThrow();
+    expect(await readFile(join(dir, 'account.json'), 'utf8')).toBe(before);
+    expect(store.account?.expectedUserId).toBe('123');
+    expect((await readdir(dir)).filter(name => name.startsWith('account-'))).toHaveLength(1);
+    expect((await readdir(dir)).filter(name => name.startsWith('session-'))).toHaveLength(1);
+  } finally { await store.close(); await rm(dir, { recursive: true, force: true }); }
+});

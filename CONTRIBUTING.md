@@ -1,67 +1,44 @@
-# Contributing to alza-mcp
+# Contributing
 
-Thanks for considering a contribution. This is a small, focused project — read-only MCP wrapper for Alza.cz — and the bar for any change is "does it make agents better at helping people shop?".
+Start with the [setup instructions](README.md#configuration-and-local-development) and [architecture constraints](ARCHITECTURE.md). Keep changes focused on reliable, read-only Alza.cz research.
 
-## Quick start
+Run the required checks after the final change:
 
-```bash
-git clone https://github.com/lukabudik/alza-mcp.git
-cd alza-mcp
-npm install
-npm test          # unit tests
-npm run typecheck # TS strict
-npm run build     # compile to dist/
-npm run validate:api  # hits real Alza endpoints — internet required
+```sh
+npm run typecheck
+npm test
+npm run build
+npm audit
 ```
 
-## Project layout
+Tests use real application collaborators and MCP transports where practical. Replace only browser/network boundaries to force challenge, expiration, pagination and schema failures. Preserve source values and test meaningful distinctions: no results versus failed parsing, public versus conditional prices, rating count versus review count, and partial versus exhausted traversal.
 
-```
-src/
-  index.ts          # stdio entrypoint
-  server.ts         # builds the McpServer; testable
-  infra/            # HTTP client, locale, JSON-LD, cache, errors, logger
-  domain/           # catalog / reviews / pickup
-  tools/            # one file per MCP tool
-  resources/        # alza:// resource handlers
-  prompts/          # MCP prompt templates
-  data/             # static datasets (e.g. branches)
-test/               # vitest tests + fixtures
-scripts/            # validate-api & ops scripts
+New upstream behavior belongs in `src/adapters`; provider lifetime and authentication belong in `src/infra`. Tool inputs and research results are defined in `src/domain`. Keep endpoint restrictions, account checks and error metadata intact. Do not log raw HTML, credentials, session exports or browser exception messages.
+
+## Live verification
+
+The live validator calls the actual MCP tool interface, checks semantic results, and traverses a bounded test category and a product's reviews to completion. It writes metadata-only JSONL under `.artifacts`; reports contain no review bodies or account cookies.
+
+Against the local source tree:
+
+```sh
+xvfb-run -a npm run validate:api
 ```
 
-## Adding a new tool
+Against the deployed server:
 
-1. Create `src/tools/your-tool.ts` exporting `createYourTool(deps): ToolDefinition`.
-2. Define a Zod input schema. **Every field gets `.describe()`** — that text is what the LLM reads to decide whether and how to call the tool.
-3. Set `annotations.readOnlyHint: true` for read-only tools. Anything that mutates anything must set `destructiveHint: true` and require an explicit `confirm: true` argument.
-4. Return both `content[].text` (Markdown summary for chat) and `structuredContent` (typed JSON for the agent).
-5. Register the tool in `src/server.ts`.
-6. Add a fixture-based test in `test/`.
+```sh
+ALZA_MCP_URL=https://your-alza-domain.example/mcp npm run validate:api
+```
 
-## Adding a data source
+Set `ALZA_MCP_TOKEN` through a private environment or secret manager. Optional `ALZA_TEST_CATEGORY`, `ALZA_TEST_PRODUCT`, and `ALZA_TEST_AUTH` select the test data and authentication policy. Defaults use an SSD category and a reviewed Samsung SSD. Use `required` to test an imported account. Product retirement or catalogue changes may require updating those test IDs; an empty or partial response is a failed check.
 
-Add a domain module under `src/domain/`. If it talks to a new upstream:
+Exercise the Docker deployment as well as the local browser. Confirm that the data volume survives a container replacement, both solver ports remain private, bad credentials and origins fail, and required authentication fails explicitly without an imported account. Compare a required-auth result's effective price against the same account in the normal storefront before relying on company or AlzaPlus benefits.
 
-- Prefer an official API with a documented schema (see how `pickup.ts` uses the AlzaBox OpenAPI).
-- If you have to reverse-engineer, document the recipe in a top-of-file comment and reference any prior art.
-- Always plumb errors through the typed errors in `src/infra/errors.ts` so the server can return clean MCP errors.
+## Home-server acceptance trial
 
-## Style
+Run `npm run validate:soak` with `ALZA_MCP_URL` pointing to the actual home deployment. The default trial lasts seven days and samples one data operation every 30 minutes. Its acceptance rule requires at least 200 calls and at least 99% successful, semantically valid responses across a full seven days. Failures remain in the report even when a later call succeeds.
 
-- TypeScript strict, no `any`, no `// @ts-ignore` without a comment explaining why.
-- Small files, single responsibility.
-- No comments that just restate the code.
-- Tests are vitest; integration script is `npm run validate:api`.
+`ALZA_SOAK_INTERVAL_MS`, `ALZA_SOAK_DURATION_MS`, and `ALZA_VALIDATION_REPORT` allow a shorter diagnostic run or a separate report path. A shortened run cannot pass seven-day acceptance. Keep the client process supervised for the whole trial; inspect authentication, challenge recovery, memory growth and restart behavior alongside the numerical result. A source-tree smoke test is not evidence that the home server passed this trial.
 
-## Reporting upstream breakage
-
-When Alza changes an endpoint shape:
-
-1. Run `npm run validate:api` and paste the output.
-2. Open an "Endpoint broken" issue.
-3. Bonus: include a HAR file or a curl snippet showing the new shape.
-
-## Code of conduct
-
-Be kind. This is a hobby project run by volunteers.
+When reporting breakage, include the operation, failure code, provider attempts and a sanitized description of the expected response. Do not attach a full HAR or session export: those can contain credentials. Commit self-contained milestones using conventional commit messages.

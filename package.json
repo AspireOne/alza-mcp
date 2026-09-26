@@ -23,7 +23,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "validate:api": "tsx scripts/validate-api.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "validate:soak": "tsx scripts/validate-api.ts --soak"
   },
   "keywords": [
     "mcp",

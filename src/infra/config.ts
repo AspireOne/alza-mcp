@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { AuthMode } from "../domain/contracts.js";
+import { fail } from "./failure.js";
 
 export interface Config {
   dataDir: string;
@@ -15,9 +16,9 @@ export interface Config {
   byparrUrl?: string;
 }
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
-  if (env.ALZA_BASE_URL && env.ALZA_BASE_URL.replace(/\/$/, "") !== "https://www.alza.cz") throw new Error("Only https://www.alza.cz is supported in v0.2.");
+  if (env.ALZA_BASE_URL && env.ALZA_BASE_URL.replace(/\/$/, "") !== "https://www.alza.cz") fail('CONFIGURATION_ERROR', "Only https://www.alza.cz is supported in v0.2.");
   const authMode = env.ALZA_AUTH_MODE ?? "preferred";
-  if (!["preferred", "required", "anonymous"].includes(authMode)) throw new Error("Invalid ALZA_AUTH_MODE.");
+  if (!["preferred", "required", "anonymous"].includes(authMode)) fail('CONFIGURATION_ERROR', "Invalid ALZA_AUTH_MODE.");
   return {
     dataDir: resolve(env.ALZA_DATA_DIR ?? ".alza-mcp"),
     headless: env.ALZA_HEADLESS === "true",
@@ -29,7 +30,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
 }
 function serviceUrl(value?: string): string | undefined {
   if (!value) return undefined;
-  const u = new URL(value);
-  if (!["http:", "https:"].includes(u.protocol) || u.username || u.password || u.search || u.hash) throw new Error("Invalid recovery service URL.");
+  let u: URL;
+  try { u = new URL(value); } catch { fail('CONFIGURATION_ERROR', 'Invalid recovery service URL.'); }
+  if (!["http:", "https:"].includes(u.protocol) || u.username || u.password || u.search || u.hash) fail('CONFIGURATION_ERROR', "Invalid recovery service URL.");
   return u.toString().replace(/\/$/, "");
 }

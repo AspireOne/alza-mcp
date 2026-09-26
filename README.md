@@ -1,240 +1,142 @@
 # alza-mcp
 
-> Let your AI agent shop on **[Alza.cz](https://www.alza.cz)** — Central Europe's largest e-commerce store.
+An unofficial, read-only Alza.cz research server for MCP clients. Search and traverse product listings, inspect product detail, and read full reviews. It runs on a home Linux server with a persistent Chromium profile. An imported Alza login is optional.
 
-[![npm version](https://img.shields.io/npm/v/alza-mcp.svg)](https://www.npmjs.com/package/alza-mcp)
-[![CI](https://github.com/lukabudik/alza-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/lukabudik/alza-mcp/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![TypeScript](https://img.shields.io/badge/-TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Playwright](https://img.shields.io/badge/-Playwright-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
-[![MCP](https://img.shields.io/badge/-Model%20Context%20Protocol-7C3AED)](https://modelcontextprotocol.io)
+The server attempts automatic challenge recovery, but cannot guarantee CAPTCHA-free access. It reports unsuccessful recovery, expired login, changed pagination, and incomplete parsing explicitly. It provides no checkout, order, pickup-point, or store-inventory tools.
 
-`alza-mcp` is an unofficial **Model Context Protocol** server that gives Claude (or any MCP-aware agent) a read-only window into the Alza catalog: search products, pull full detail, read aggregated reviews, find a nearby pickup point. No credentials, no purchases — just research.
+## Run on a home server
 
-<p align="center"><img src="docs/demo.svg" alt="A Claude Code session using alza-mcp to find a pro-grade wheel cleaner on Alza and the nearest pickup point" width="780"></p>
+Use Docker on x86_64 Linux. Allow at least 4 GB of memory for the application and recovery browsers, plus capacity for the host and other services.
 
-Ask: *"Find me the best pro-grade wheel cleaner under 600 Kč and tell me where I can pick it up in Prague."* The agent calls `search_products` → `get_product` → `find_pickup_points` and gives you a real answer with real prices and a real address.
-
-> [!IMPORTANT]
-> This project is **unofficial** — not affiliated with, endorsed by, or sponsored by Alza.cz a.s. It's a community wrapper for personal/research use. Read the [disclaimer](#disclaimer) before deploying or sharing widely.
-
----
-
-## Quick install
-
-### Claude Code
-
-```bash
-claude mcp add alza --scope user -- npx -y alza-mcp
+```sh
+cp .env.example .env
+openssl rand -hex 32
+# Put the generated value in ALZA_MCP_TOKEN in .env.
+# Set ALZA_PUBLIC_URL to your HTTPS origin, or leave it empty for local use.
+docker compose up -d --build
 ```
 
-That's it. Restart Claude Code, type `/mcp` to confirm, and start asking. First call takes ~30 s while Playwright downloads its headless Chromium browser (~92 MB) — every call after that is a few seconds.
+Connect an MCP client with:
 
-### Claude Desktop
+```text
+Transport: Streamable HTTP
+URL: https://your-alza-domain.example/mcp
+Authorization: Bearer <ALZA_MCP_TOKEN>
+```
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+The endpoint uses stateless JSON responses. GET/SSE sessions and DELETE session termination are not supported. Use a client that accepts Streamable HTTP JSON responses. Locally, use `http://127.0.0.1:3000/mcp`.
+
+For Coolify, deploy [compose.yaml](compose.yaml), set the environment values, and retain the `alza-data` volume. Route Cloudflare Tunnel to the application's port 3000. A tunnel on the host can use `http://127.0.0.1:3000`; a tunnel container must share the application's Docker network and use `http://alza:3000`. Preserve the public Host header and set `ALZA_PUBLIC_URL` to that exact HTTPS origin. Expose only the application; both recovery services stay on the private Docker network. Cloudflare Access, if enabled, requires its own client credentials in addition to the MCP bearer token.
+
+`/healthz` is a process check. It does not contact Alza or prove that challenges can be solved. An unhealthy Alza session should not trigger a container restart loop.
+
+## Research tools
+
+| Tool | Input and result |
+|---|---|
+| `list_categories` | Current category navigation. |
+| `get_category` | `category_id`; child categories, manufacturers, facets and supported sort orders. Some navigation pages do not support direct listings. |
+| `search_products` | `query` or `category_id`, optional filters and sort; one complete upstream page and a continuation cursor. |
+| `get_product` | Exactly one of `product_id`, `url`, or `code`; optional `sections`. Codes can match multiple conditions, so numeric IDs are preferred. |
+| `get_product_reviews` | `product_id`, optional `limit` from 1 to 50; written reviews, statistics and a continuation cursor. |
+| `get_session_status` | Local browser, account-configuration, queue and recovery state. Does not verify a login. |
+
+For example, start with:
 
 ```json
 {
-  "mcpServers": {
-    "alza": {
-      "command": "npx",
-      "args": ["-y", "alza-mcp"]
-    }
-  }
+  "category_id": 18845887,
+  "filters": { "max_price": 4000, "in_stock": true },
+  "sort": "price_asc",
+  "auth": "anonymous"
 }
 ```
 
-Restart the app. Same first-call download.
+Then call the same tool with only `{"cursor":"<next_cursor>"}` until `exhausted` is true. Do not change query, filters, page size, or authentication during a traversal. Cursors expire after an hour and are invalidated by a server restart or account replacement. There is no fixed total-result cap and no giant `get_all` response.
 
-### Cursor / Continue / any MCP client
+Price, manufacturer, condition, stock and parameter filters are applied by Alza. Get enum IDs and numeric range boundaries from `get_category`; numeric values use Alza's source units, which may differ from the displayed label. Unsupported filters fail explicitly.
 
-Same shape — `command: "npx"`, `args: ["-y", "alza-mcp"]`. Stdio transport, standard MCP everywhere.
+Product sections are `description`, `specifications`, `variants`, `media`, `documents`, `offers`, `attributes`, and `ratings`. Each requested section is available, not provided by the page, or failed. Variant selectors expose their displayed options and price differences; these do not always include another product's ID. Search for that variant to retrieve its full detail. Document and media results are links, not downloaded files.
 
----
+## Read results correctly
 
-## What you can ask
+Every tool result includes matching JSON in `structuredContent` and `content[0].text`:
 
-A real session captured during testing:
+- `status: "ok"`: the requested operation succeeded.
+- `status: "partial"`: useful data is included with explicit `errors`; inspect each section and pagination state. MCP `isError` is true.
+- `status: "error"`: an explicit `error` with `code`, `message`, and `retryable`. MCP `isError` is true.
 
-> **You:** Find me the best pro-grade wheel cleaner on Alza, around 500 Kč. I want a detailer-tier brand.
->
-> **Claude:** *(calls `search_products` "čistič disků kol" sort=rating, then `get_product` on the top picks)*
->
-> Top three from the live catalog:
->
-> | # | Product | Brand | Volume | Price | ★ |
-> |---|---|---|---:|---:|---:|
-> | 1 | Sonax Xtreme Full Effect | Sonax 🇩🇪 | 750 ml | 559 Kč | 4.8 |
-> | 2 | Kenotek Wheel Cleaner Ultra | Kenotek 🇧🇪 | 1 L | 455 Kč | 4.8 |
-> | 3 | Auto Finesse Reactive 1L | Auto Finesse 🇬🇧 | 1 L | 599 Kč | 4.4 |
->
-> Pick: **Sonax Xtreme Full Effect 750 ml** — the de-facto detailer recommendation. It's iron-fallout reactive (turns purple on contact with brake-dust particles so you can watch it work), Sonax is a German workshop standard, and it's in stock.
+Metadata identifies the provider, attempted recovery steps, verified authentication state, source URLs, cache age and warnings. For a response combining fresh and cached sections, cache age identifies the oldest cached contribution. Missing values are not zero. `exhausted: false` with no cursor means traversal failed; it does not mean all results were returned. A traversal is not a snapshot: additions, removals or reordered results can require a restart.
 
-That's the agent calling four MCP tools across two parallel searches and synthesizing real Alza data. No hallucinated SKUs.
+Offers distinguish public, effective, conditional and reference prices. Decimal amounts preserve upstream precision; `display` preserves Alza's displayed rounding. VAT-inclusive and VAT-exclusive offers remain separate. A conditional coupon or AlzaPlus promotion is not automatically the price you can pay. Rating counts, written-review counts and translated-review counts can differ; reviews preserve the displayed variant and verified-purchase label.
 
----
+## Optional account session
 
-## What it does
+`auth` is accepted on data tools:
 
-Five focused tools, all read-only:
-
-| Tool | Purpose |
+| Mode | Behavior |
 |---|---|
-| **`search_products`** | Keyword search with filters — price range, sort, category, in-stock |
-| **`get_product`** | Full detail for one product — price, availability, brand, image, URL |
-| **`get_product_reviews`** | Aggregate rating + review count |
-| **`find_pickup_points`** | Nearest brick-and-mortar AlzaShop showrooms by postal code |
-| **`list_categories`** | 20 top-level Alza categories with ids — feed `category_id` to `search_products` to narrow |
+| `anonymous` | Dedicated anonymous profile; public pricing. |
+| `preferred` | Uses the configured account when verified. May use anonymous access with an explicit warning if the login expires or cannot survive recovery. |
+| `required` | Must verify the configured account, including on cache hits. Never silently returns anonymous pricing. |
 
-Plus:
+Stop the application before importing a session. The data-directory lock also enforces this. The import validates the expected numeric account ID on Alza before atomically replacing the existing account. A failed validation leaves the previous account in place.
 
-- 📦 **Resource** — `alza://product/{code}` lets agents read a product as a URI.
-- 💬 **Prompt** — `/find-product` is a guided shopping helper.
-- 🌍 **Multi-locale** — works for `alza.cz`, `.sk`, `.hu`, `.at`, `.de`, `.co.uk` via one env var.
+The portable import is a Playwright/Patchright storage-state JSON file containing Alza cookies and local storage. To export from a Chromium instance with an explicitly enabled, private CDP endpoint, build this repository and run:
 
----
+```sh
+node scripts/export-session.mjs http://127.0.0.1:9222 /private/alza-session.json
+```
 
-## Configuration
+Only Alza session data is exported; Cloudflare cookies are excluded because they are not portable browser identity. The exporter detaches after reading. Do not expose the debugging port to the internet. Chromium may require a dedicated user-data directory to enable remote debugging.
 
-All optional — `alza-mcp` works out of the box.
+Copy the export to the home server, then import it:
 
-| Env var | Default | Purpose |
+```sh
+docker compose stop alza
+docker compose run --rm --no-deps \
+  -v /private/alza-session.json:/import/session.json:ro \
+  alza session import --storage /import/session.json --expected-user-id YOUR_NUMERIC_ID
+docker compose up -d alza
+```
+
+You can instead use `--profile /import/browser` with a mounted, **closed Chromium user-data directory containing the Default profile**. The importer reads a temporary copy, extracts Alza state, and validates it in a fresh managed profile. It does not preserve a complete device fingerprint. Encrypted browser cookies may not be readable across machines or operating systems; use a storage-state export when that happens. Never copy a running profile.
+
+You can find your numeric ID in the signed-in site's `_pageData.userId` page bootstrap. After import, call a data tool with `auth: "required"` to verify the actual server session. Company discounts and AlzaPlus prices still need comparison against your signed-in browser; a configured session alone does not prove benefit eligibility.
+
+Protect the data volume and export like a password. Delete the transfer file after a successful import. The application does not expose cookies, profile downloads or session-import tools over MCP.
+
+## Configuration and local development
+
+| Variable | Default | Purpose |
 |---|---|---|
-| `ALZA_BASE_URL` | `https://www.alza.cz` | Switch locale: `https://www.alza.cz`, `.sk`, `.hu`, `.at`, `.de`, `.co.uk` |
-| `ALZA_CDP_URL` | _unset_ | Connect to your already-running Chrome via CDP instead of launching a managed Chromium. Skips the browser download, inherits your session. Launch Chrome with `--remote-debugging-port=9222` and set `ALZA_CDP_URL=http://localhost:9222`. |
-| `ALZA_HEADLESS` | `true` | Set `false` to run a visible browser (debugging only) |
-| `ALZA_IDLE_TTL_MS` | `180000` | Close the headless Chromium after this many ms with no tool calls. Lower it on memory-constrained machines; raise it (or disable by setting absurdly high) if you make many calls in quick succession and don't want the relaunch latency. |
-| `ALZA_DEBUG` | `false` | Verbose stderr logging |
+| `ALZA_DATA_DIR` | `.alza-mcp` locally, `/data` in Docker | Persistent profiles, account manifest and cursor key. |
+| `ALZA_AUTH_MODE` | `preferred` | Default authentication mode. |
+| `ALZA_MCP_TOKEN` | Required for HTTP | At least 32 characters; use a random value. |
+| `ALZA_PUBLIC_URL` | Unset | Allowed public HTTPS origin. |
+| `PORT` | `3000` | HTTP listening port. |
+| `ALZA_TRANSPORT` | stdio | Set `http`, or pass `--http`. |
+| `ALZA_FLARESOLVERR_URL` | Unset locally | Private solver URL; Compose configures it. |
+| `ALZA_BYPARR_URL` | Unset locally | Private final anonymous solver URL; Compose configures it. |
+| `ALZA_HEADLESS` | `false` | Headed browser is the intended deployment. Docker supplies Xvfb. |
+| `ALZA_BROWSER_EXECUTABLE` | Bundled Chromium | Diagnostic override; mismatched versions are not the tested configuration. |
+| `ALZA_LOG_LEVEL` | `info` | Structured stderr logging. |
 
----
+Only `www.alza.cz` is supported. Old CDP attachment, locale switching, pickup tools, product resources and shopping prompts were removed in 0.2. Browser downloads happen during explicit installation or Docker build, never during an MCP call.
 
-## How it works
+For local Node.js development:
 
-Alza has no public consumer API. The mobile app's REST endpoints exist, but Alza runs **Cloudflare Bot Management in challenge mode** — every plain HTTP call returns `403` with a JS challenge. (Most CEE retailers don't do this; e.g. [rohlik-mcp](https://github.com/tomaspavlin/rohlik-mcp) uses plain HTTP because Rohlik runs Cloudflare in passive mode. Alza is one of the few that actively defends its catalog.)
-
-Rather than fight Cloudflare, **`alza-mcp` drives a real browser**:
-
-1. **Playwright + headless Chromium** — Cloudflare lets a real browser through; we just *are* one. No fingerprint games, no proxy dependencies, no cat-and-mouse.
-2. **Search** navigates `/search.htm?exps=...` and scrapes `.browsingitem` cards with stable `data-code` attributes.
-3. **Product detail** comes from the page's JSON-LD `Product` schema — the same SEO data Google uses for rich snippets. Stable and structured.
-4. **Reviews** use the JSON-LD `aggregateRating`.
-5. **Pickup points** combine a curated branch dataset with [Nominatim](https://nominatim.openstreetmap.org/) geocoding.
-6. **Caching** — search 60 s, product 15 min, categories 24 h. Per-process LRU.
-
-Image, font, and analytics requests are blocked at the route level — every search is one HTML payload, no media. Typical latencies: search ~2 s, product detail ~5 s warm.
-
-```
-┌────────────────────────────────────────────┐
-│ stdio transport (npx alza-mcp)             │
-├────────────────────────────────────────────┤
-│ MCP tools / resources / prompts            │
-├────────────────────────────────────────────┤
-│ Domain: catalog · reviews · pickup         │
-├────────────────────────────────────────────┤
-│ Infra:                                     │
-│  • browser (Playwright, page pool, CDP)    │
-│  • jsonld (schema.org parser)              │
-│  • cache (LRU + TTL)                       │
-│  • locale (multi-country)                  │
-└────────────────────────────────────────────┘
-```
-
-For deeper architecture notes — including why we don't ship the HTTP/okhttp recipe — see [ARCHITECTURE.md](ARCHITECTURE.md).
-
----
-
-## Development
-
-```bash
-git clone https://github.com/lukabudik/alza-mcp.git
-cd alza-mcp
-npm install                 # auto-installs Chromium via postinstall
-npm test                    # unit tests, no network
+```sh
+npm ci --ignore-scripts
+npx patchright install --with-deps chromium
 npm run typecheck
-npm run build               # → dist/
-npm run validate:api        # hits real Alza — runs every tool end-to-end
-node dist/index.js          # run the server (waits for stdio MCP messages)
+npm test
+npm run build
+xvfb-run -a node dist/index.js
 ```
 
-**Further reading:**
-- [ARCHITECTURE.md](ARCHITECTURE.md) — why the code looks the way it does (CF, Playwright, hydration strategy)
-- [ROADMAP.md](ROADMAP.md) — what's planned next
-- [CONTRIBUTING.md](CONTRIBUTING.md) — repo layout and how to add a tool
+Without `--http`, stdout is reserved for MCP stdio. A desktop MCP client can launch `xvfb-run -a node /absolute/path/dist/index.js`; use an absolute `ALZA_DATA_DIR`. Only one server or import command may own that directory.
 
----
+See [ARCHITECTURE.md](ARCHITECTURE.md) for design constraints and [CONTRIBUTING.md](CONTRIBUTING.md) for verification and development conventions.
 
-## Roadmap
-
-The current release is intentionally small and read-only. Highlights of what's planned:
-
-- **AlzaBox locker discovery** — surface 24/7 parcel lockers, not just showrooms
-- **Individual review bodies** — load the reviews tab and scrape per-review text, not just the aggregate
-- **Streamable HTTP transport** + hosted endpoint on Vercel
-- **Compare / recommend / deals** tools
-- **PC builder** — socket / RAM / wattage / clearance compatibility engine
-
-Full list and priorities live in [ROADMAP.md](ROADMAP.md).
-
----
-
-## FAQ
-
-### Why the 92 MB Chromium download?
-
-Cloudflare's Bot Management runs a JavaScript challenge that only a real browser can solve. We tried mimicking the official Alza Android app with `okhttp` and the right cookies (the [topmonks/hlidac-shopu](https://github.com/topmonks/hlidac-shopu/tree/main/actors/alza) recipe) and it works — *if* you call from Apify's residential proxy network. From any laptop or datacenter you get 403s. Driving a real headless Chrome was the only approach that worked end-to-end without external dependencies. See [How it works](#how-it-works) for the full reasoning.
-
-### Why no purchasing / cart / login?
-
-1. **Trust** — running an MCP server that holds your Alza credentials is a much higher bar than a read-only catalog browser.
-2. **Stability** — the cart/order flow is the most likely to break with frontend updates.
-3. **Scope** — agents that *help you research* are useful even without `place_order`. Click "Buy" yourself when you're ready.
-
-### Can I avoid the Chromium download?
-
-Yes. Set `ALZA_CDP_URL` to your existing Chrome's debug port:
-
-```bash
-# launch Chrome with debugging
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-  --remote-debugging-port=9222
-# tell alza-mcp to attach
-ALZA_CDP_URL=http://localhost:9222 npx alza-mcp
-```
-
-The MCP will use *your* Chrome — no separate download, faster cold starts, and it inherits any Alza cookies you already have.
-
-### Will Alza take this down?
-
-The project identifies itself in `User-Agent`, caches aggressively to minimize traffic, has no commercial intent, and provides a takedown contact path via [issues](https://github.com/lukabudik/alza-mcp/issues). If Alza requests removal, we'll comply.
-
-### How does this compare to rohlik-mcp?
-
-[tomaspavlin/rohlik-mcp](https://github.com/tomaspavlin/rohlik-mcp) is the inspiration. Differences:
-- Rohlik isn't behind a Cloudflare challenge → rohlik-mcp uses plain HTTP. We're forced to a real browser because Alza is.
-- Alza is a much larger catalog (millions of SKUs vs. a grocery list).
-- We're read-only by design; rohlik-mcp ships cart actions because the use case is recurring grocery orders.
-- We expose MCP **resources** and **prompts** in addition to tools.
-
----
-
-## Disclaimer
-
-`alza-mcp` is **not affiliated with, endorsed by, or sponsored by Alza.cz a.s.** "Alza", "Alza.cz", and "AlzaBox" are trademarks of their respective owners.
-
-This project drives a real browser to render publicly accessible Alza pages — the same pages a human visitor sees. The maintainers make no guarantees of availability, accuracy, or fitness for any purpose. Use at your own risk; do not rely on this for commercial decisions.
-
-If you are an Alza employee and have concerns, please open an issue or reach out — we will respond promptly.
-
----
-
-## License
-
-MIT. See [LICENSE](LICENSE).
-
-## Acknowledgements
-
-- [tomaspavlin/rohlik-mcp](https://github.com/tomaspavlin/rohlik-mcp) — direct inspiration; layout patterns we mirror.
-- [topmonks/hlidac-shopu](https://github.com/topmonks/hlidac-shopu) — reference Alza scraper recipe (HTTP + proxies).
-- [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp) — official Playwright MCP, proof that browser-driven MCPs are the right abstraction for many websites.
-- [Model Context Protocol](https://modelcontextprotocol.io) and the [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk).
+Unofficial; not affiliated with or endorsed by Alza.cz a.s. Licensed under [MIT](LICENSE).

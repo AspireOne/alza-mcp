@@ -1,5 +1,8 @@
 import { chromium, type BrowserContext, type Page } from "patchright";
-import { accountFromHtml, classifyResponse, decodeJson } from "../adapters/html.js";
+import { readlink, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { hostname } from "node:os";
+import { classifyResponse, decodeJson } from "../adapters/html.js";
 import type { Config } from "./config.js";
 import { fail, FailureError } from "./failure.js";
 import type { Operation } from "./operation.js";
@@ -7,6 +10,7 @@ import type { Document, Reader } from "./reader.js";
 import { StateStore, type Storage } from "./state.js";
 import { alzaUrl, BASE_URL, FILTER_PATH } from "./urls.js";
 import { log } from "./logger.js";
+import { verifyIdentity } from "./identity.js";
 
 export class SessionBrowser {
   private context?: BrowserContext;
@@ -17,6 +21,20 @@ export class SessionBrowser {
     await this.close();
     log.info("browser.start", { profile: kind });
     try {
+      const profile = this.store.profile(kind);
+      // The caller owns the data-directory lease. Chromium's old hostname/PID
+      // lock otherwise prevents recovery after replacing a crashed container.
+      try {
+        const lock = await readlink(join(profile, 'SingletonLock'));
+        const match = lock.match(/^(.*)-(\d+)$/);
+        if (match?.[1] === hostname()) {
+          let alive = false;
+          try { process.kill(Number(match[2]), 0); alive = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') alive = true; }
+          if (alive) fail('PROFILE_IN_USE', 'A browser process still owns the managed profile.');
+        }
+        await Promise.all(['SingletonLock', 'SingletonCookie', 'SingletonSocket'].map(file => rm(join(profile, file), { force: true })));
+        log.info('browser.stale_lock_removed', { profile: kind });
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
       this.context = await chromium.launchPersistentContext(this.store.profile(kind), {
         headless: this.config.headless, executablePath: this.config.executablePath, viewport: null,
         locale: "cs-CZ", timezoneId: "Europe/Prague", timeout,
@@ -25,6 +43,7 @@ export class SessionBrowser {
       this.context.on("close", () => { this.context = undefined; this.kind = undefined; });
       return this.context;
     } catch (error) {
+      if (error instanceof FailureError) throw error;
       throw new FailureError({ code: "BROWSER_UNAVAILABLE", message: "Chromium could not start. Check browser installation, display, profile ownership, and server resources.", retryable: true }, { cause: error });
     }
   }
@@ -53,13 +72,7 @@ export class SessionBrowser {
       }
     };
     const expected = kind === "account" ? this.store.account : undefined;
-    const verify = (html: string) => {
-      const account = accountFromHtml(html);
-      if (expected && !account.loggedIn) fail("AUTH_REQUIRED", "The configured Alza session has expired. Import a valid session.");
-      if (expected && account.userId !== expected.expectedUserId) fail("AUTH_ACCOUNT_MISMATCH", "The browser is signed into a different Alza account.");
-      if (!expected && account.loggedIn) fail("AUTH_ACCOUNT_MISMATCH", "The anonymous profile unexpectedly contains an authenticated session.");
-      op.meta.auth.state = expected ? "signed_in" : "anonymous";
-    };
+    const verify = (html: string) => { op.meta.auth.state = verifyIdentity(html, expected); };
     const reader: Reader = {
       provider: "browser", canPost: true, context: expected ? `account:${expected.generation}` : "anonymous",
       page: async (url, options) => {

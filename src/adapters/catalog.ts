@@ -18,7 +18,7 @@ export function searchUrl(query: SearchQuery): string {
 }
 export function categories(html: string, children = false): Category[] {
   const $ = load(html), found = new Map<number, Category>();
-  const selectors = children ? ".subCategoriesList a, .subCategories a, .subcategory a, [class*=subcategory] a" : 'li[class*="category-naviga"] a, .category-tree a, .subCategoriesList a';
+  const selectors = children ? ".category-tiles__categories a, .subCategoriesList a, .subCategories a, .subcategory a, [class*=subcategory] a" : 'li[class*="category-naviga"] a, .category-tree a, .subCategoriesList a';
   for (const el of $(selectors).toArray()) {
     const link = $(el), href = link.attr("href"), name = text(link.text());
     const match = href?.match(/\/(\d{4,})\.htm/);
@@ -72,6 +72,10 @@ export function facets(html: string): Facet[] {
 export function manufacturers(html: string): Array<{ id: number; name: string }> {
   const $ = load(html);
   return $(".parameterValue.producer").toArray().map(e => ({ id: Number($(e).find("input").attr("value")), name: text($(e).find(".name").text()) })).filter(v => v.id > 0 && v.name);
+}
+export function sortOrders(html: string): Sort[] {
+  const $ = load(html), codes = new Set($("a[data-sort]").toArray().map(el => Number($(el).attr("data-sort"))));
+  return (Object.keys(SORT_CODES) as Sort[]).filter(sort => codes.has(SORT_CODES[sort]));
 }
 
 export function filterRequest(html: string, query: SearchQuery, page: number): Record<string, any> {
@@ -137,7 +141,7 @@ export function parseFilter(raw: unknown, page: number): { products: ReturnType<
 export function parseRenderedSearch(html: string, page: number, query: SearchQuery): { products: ReturnType<typeof listings>; total: number | null; next: boolean } {
   const $ = load(html), data = object(pageData(html).data), products = listings(html);
   const current = $("a.pgn.sel, [aria-current=page].pgn").first();
-  if (products.length && Number(current.text()) !== page) fail("PAGINATION_STALLED", "Recovery did not render the requested result page.");
+  if (products.length && (current.length ? Number(current.text()) !== page : page !== 1 || $("a.pgn").length > 0)) fail("PAGINATION_STALLED", "Recovery did not render the requested result page.");
   if (!products.length && data.isEmpty !== true) fail("INCOMPLETE_RESULTS", "Recovery returned no listings without confirming an empty search.");
   const filters = query.filters ?? {};
   for (const [key, label] of [["min_price", "Minimální cena"], ["max_price", "Maximální cena"]] as const) {
@@ -150,6 +154,8 @@ export function parseRenderedSearch(html: string, page: number, query: SearchQue
   for (const id of filters.manufacturers ?? []) if (!$(`input.producer[value="${id}"]`).is(":checked")) fail("UNSUPPORTED_FILTER", "Recovery did not apply the manufacturer filter.");
   for (const condition of filters.condition ?? []) if (!$(`#${CONDITION_IDS[condition]}`).is(":checked")) fail("UNSUPPORTED_FILTER", "Recovery did not apply the condition filter.");
   if (filters.facets?.length || filters.in_stock) fail("RECOVERY_UNSUPPORTED", "This renderer cannot independently verify the requested facet or stock state.");
-  if (query.sort && query.sort !== "relevance" && !$(".sorting__item--selected a, .sorting__item.selected a, a.selected[data-sort], .sorting__item.active a").toArray().some(e => Number($(e).attr("data-sort")) === SORT_CODES[query.sort!])) fail("RECOVERY_UNSUPPORTED", "Recovery could not confirm the requested ordering.");
-  return { products, total: products.length ? null : 0, next: $("a.next[aria-label], a[id^=pgby]").length > 0 };
+  if (query.sort && query.sort !== "relevance" && !$('a[data-sort][aria-current="page"], .sorting__item-link--active').toArray().some(e => Number($(e).attr("data-sort")) === SORT_CODES[query.sort!])) fail("RECOVERY_UNSUPPORTED", "Recovery could not confirm the requested ordering.");
+  const countText = $('#lblNumberItem').first().text().replace(/\s/g, '');
+  if (countText && !/^\d+$/.test(countText)) fail('SCHEMA_CHANGED', 'The rendered result count could not be parsed.');
+  return { products, total: countText ? Number(countText) : products.length ? null : 0, next: $("a.next[aria-label], a[id^=pgby]").length > 0 };
 }
