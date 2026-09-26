@@ -15,7 +15,7 @@ services:
       - 127.0.0.1:3000:3000
     shm_size: 512mb
     mem_limit: ${ALZA_MEMORY_LIMIT:-2g}
-    stop_grace_period: 100s
+    stop_grace_period: 130s
     security_opt:
       - no-new-privileges:true
     depends_on:

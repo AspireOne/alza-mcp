@@ -24,6 +24,8 @@ URL: https://your-alza-domain.example/mcp
 Authorization: Bearer <ALZA_MCP_TOKEN>
 ```
 
+Set the client’s per-tool timeout to at least 130 seconds to allow [bounded recovery](ARCHITECTURE.md#access-and-recovery) to finish and report its result.
+
 The endpoint uses stateless JSON responses. GET/SSE sessions and DELETE session termination are not supported. Use a client that accepts Streamable HTTP JSON responses. Locally, use `http://127.0.0.1:3000/mcp`.
 
 For Coolify, deploy [compose.yaml](compose.yaml), set the environment values, and retain the `alza-data` volume. Route Cloudflare Tunnel to the application's port 3000. A tunnel on the host can use `http://127.0.0.1:3000`; a tunnel container must share the application's Docker network and use `http://alza:3000`. Preserve the public Host header and set `ALZA_PUBLIC_URL` to that exact HTTPS origin. Expose only the application; both recovery services stay on the private Docker network. Cloudflare Access, if enabled, requires its own client credentials in addition to the MCP bearer token.
@@ -32,7 +34,7 @@ For Coolify, deploy [compose.yaml](compose.yaml), set the environment values, an
 
 On a Raspberry Pi, Docker must report working memory-limit support before relying on Compose limits. If the memory controller is disabled, back up `/boot/firmware/cmdline.txt`, append `cgroup_enable=memory` to its existing single line, and reboot during a maintenance window. Verify `memory` appears in `/sys/fs/cgroup/cgroup.controllers` and that `docker info` no longer warns about missing memory-limit support.
 
-For a 4 GB Pi sharing the host with other services, start with `ALZA_MEMORY_LIMIT=1536m`, `FLARESOLVERR_MEMORY_LIMIT=1g`, and `BYPARR_MEMORY_LIMIT=640m`. These are ceilings, not reservations. Acceptance requires successful live browsing and forced recovery without out-of-memory kills or disruption to other services; insufficient capacity is a deployment failure. See [the recovery lifetime constraints](ARCHITECTURE.md#access-and-recovery).
+For a 4 GB Pi sharing the host with other services, start with `ALZA_MEMORY_LIMIT=1536m`, `FLARESOLVERR_MEMORY_LIMIT=1g`, and `BYPARR_MEMORY_LIMIT=1g`. These are ceilings, not reservations. Acceptance requires successful live browsing and forced recovery without out-of-memory kills or disruption to other services; insufficient capacity is a deployment failure. See [the recovery lifetime constraints](ARCHITECTURE.md#access-and-recovery).
 
 Use a Git-based Docker Compose application in Coolify and deploy a verified commit. Set `ALZA_IMAGE=<coolify-application-uuid>:<git-commit>` alongside that revision, available at both build time and runtime so Compose builds and starts the same image. Coolify's cleanup recognizes this repository name and retains application images for stopped services and rollback. With Cloudflare Tunnel terminating public HTTPS and forwarding to the local HTTP proxy, configure an HTTP origin route in Coolify and set `ALZA_PUBLIC_URL` to the external HTTPS origin. Avoid an origin HTTPS redirect loop. Store the bearer token in Coolify's runtime environment and retain the same application volume across deployments.
 

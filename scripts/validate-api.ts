@@ -26,7 +26,7 @@ try {
   async function call<T>(name: string, args: Record<string, unknown>, verify?: (data: T) => void): Promise<T> {
     const start = Date.now(); let result: Result<T> | undefined, ok = false;
     try {
-      const wire = await client.callTool({ name, arguments: args }, undefined, { timeout: 100_000 });
+      const wire = await client.callTool({ name, arguments: args }, undefined, { timeout: 130_000 });
       result = wire.structuredContent as unknown as Result<T>;
       assert(result && ['ok', 'partial', 'error'].includes(result.status), 'Missing structured result');
       assert.deepEqual(JSON.parse((wire.content as Array<{ text: string }>)[0]!.text), result, 'Text and structured content disagree');
