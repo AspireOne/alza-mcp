@@ -24,7 +24,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
     headless: env.ALZA_HEADLESS === "true",
     executablePath: env.ALZA_BROWSER_EXECUTABLE,
     authMode: authMode as AuthMode,
-    timeoutMs: 120_000, primaryMs: 30_000, flareMs: 50_000, byparrMs: 25_000, cooldownMs: 300_000,
+    timeoutMs: 120_000, primaryMs: 30_000, flareMs: 50_000, byparrMs: 30_000, cooldownMs: 300_000,
     flareUrl: serviceUrl(env.ALZA_FLARESOLVERR_URL), byparrUrl: serviceUrl(env.ALZA_BYPARR_URL),
   };
 }

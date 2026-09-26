@@ -30,7 +30,7 @@ The endpoint uses stateless JSON responses. GET/SSE sessions and DELETE session 
 
 For Coolify, deploy [compose.yaml](compose.yaml), set the environment values, and retain the `alza-data` volume. Route Cloudflare Tunnel to the application's port 3000. A tunnel on the host can use `http://127.0.0.1:3000`; a tunnel container must share the application's Docker network and use `http://alza:3000`. Preserve the public Host header and set `ALZA_PUBLIC_URL` to that exact HTTPS origin. Expose only the application; both recovery services stay on the private Docker network. Cloudflare Access, if enabled, requires its own client credentials in addition to the MCP bearer token.
 
-`/healthz` is a process check. It does not contact Alza or prove that challenges can be solved. An unhealthy Alza session should not trigger a container restart loop.
+Container health checks, including the application’s `/healthz`, test local HTTP readiness. They do not contact Alza or prove that challenges can be solved. Compose replaces Byparr’s bundled browser-based Google probe with a local HTTP check to avoid background browser load. An unhealthy Alza session should not trigger a container restart loop.
 
 On a Raspberry Pi, Docker must report working memory-limit support before relying on Compose limits. If the memory controller is disabled, back up `/boot/firmware/cmdline.txt`, append `cgroup_enable=memory` to its existing single line, and reboot during a maintenance window. Verify `memory` appears in `/sys/fs/cgroup/cgroup.controllers` and that `docker info` no longer warns about missing memory-limit support.
 

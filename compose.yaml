@@ -38,5 +38,11 @@ services:
       TZ: Europe/Prague
     mem_limit: ${BYPARR_MEMORY_LIMIT:-1g}
     shm_size: 256mb
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8191/docs"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
 volumes:
   alza-data:
