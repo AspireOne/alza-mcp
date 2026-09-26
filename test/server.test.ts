@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { request } from 'node:http';
+import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -24,7 +25,7 @@ describe('MCP wire contracts', () => {
     expect(await client.callTool({ name: 'get_product', arguments: {} })).toMatchObject({ isError: true, structuredContent: { error: { code: 'INVALID_INPUT' } } });
   });
   it('supports real stateless HTTP clients and rejects token, host, origin and body errors', async () => {
-    const http = httpServer(research(), { token: 't'.repeat(40), port: 3000 });
+    const http = httpServer(research(), { auth: { mode: 'token', token: 't'.repeat(40) }, port: 3000 });
     await new Promise<void>(resolve => http.server.listen(0, '127.0.0.1', resolve)); cleanups.push(http.close);
     const address = http.server.address() as { port: number }; const url = `http://127.0.0.1:${address.port}/mcp`;
     const headers = { host: 'localhost:3000', authorization: `Bearer ${'t'.repeat(40)}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
@@ -46,11 +47,34 @@ it('cancels an active stateless HTTP call through a separate authenticated notif
   const service = new Research(config, { status: () => ({}), close: async () => {}, run: async op => {
     started(); await new Promise<void>(resolve => op.signal.addEventListener('abort', () => resolve(), { once: true })); op.check(); throw new Error('Expected cancellation');
   } }, new Cursors('x'.repeat(64)));
-  const http = httpServer(service, { token: 't'.repeat(40) }); await new Promise<void>(r => http.server.listen(0, '127.0.0.1', r)); cleanups.push(http.close);
+  const http = httpServer(service, { auth: { mode: 'token', token: 't'.repeat(40) } }); await new Promise<void>(r => http.server.listen(0, '127.0.0.1', r)); cleanups.push(http.close);
   const url = `http://127.0.0.1:${(http.server.address() as { port: number }).port}/mcp`;
   const headers = { authorization: `Bearer ${'t'.repeat(40)}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
   const result = fetch(url, { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', id: 42, method: 'tools/call', params: { name: 'search_products', arguments: { query: 'disk' } } }) });
   await waiting;
   expect((await fetch(url, { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 42 } }) })).status).toBe(202);
   expect(await (await result).json()).toMatchObject({ result: { isError: true, structuredContent: { status: 'error', error: { code: 'CANCELLED' } } } });
+});
+
+it('accepts only a signed Cloudflare Access assertion for the configured account and app', async () => {
+  const issuer = 'https://test.cloudflareaccess.com', audience = 'app-audience';
+  const { publicKey, privateKey } = await generateKeyPair('RS256');
+  const jwk = { ...await exportJWK(publicKey), kid: 'test-key', alg: 'RS256' };
+  const jwks = createLocalJWKSet({ keys: [jwk] });
+  const http = httpServer(research(), { auth: { mode: 'cloudflare-access', teamDomain: 'test.cloudflareaccess.com', audience, email: 'matejpesl1@gmail.com', jwks }, publicUrl: 'https://alza.example.com' });
+  await new Promise<void>(resolve => http.server.listen(0, '127.0.0.1', resolve)); cleanups.push(http.close);
+  const url = `http://127.0.0.1:${(http.server.address() as { port: number }).port}/mcp`;
+  const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+  const sign = (claims: Record<string, unknown>, tokenAudience = audience, expiration = Math.floor(Date.now() / 1000) + 60) => new SignJWT({ type: 'app', email: 'matejpesl1@gmail.com', ...claims })
+    .setProtectedHeader({ alg: 'RS256', kid: 'test-key' }).setIssuer(issuer).setAudience(tokenAudience).setIssuedAt().setExpirationTime(expiration).sign(privateKey);
+  const post = (assertion?: string, authorization?: string) => fetch(url, { method: 'POST', headers: { ...headers, ...(assertion ? { 'cf-access-jwt-assertion': assertion } : {}), ...(authorization ? { authorization } : {}) }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+  expect((await post()).status).toBe(401);
+  expect((await post(undefined, `Bearer ${'t'.repeat(40)}`)).status).toBe(401);
+  expect((await post(await sign({ email: 'someone@example.com' }))).status).toBe(401);
+  expect((await post(await sign({}, 'wrong-audience'))).status).toBe(401);
+  expect((await post(await sign({}, audience, Math.floor(Date.now() / 1000) - 1))).status).toBe(401);
+  const valid = await post(await sign({}));
+  expect(valid.status).toBe(200);
+  expect((await valid.json()).result.tools.map((tool: { name: string }) => tool.name)).toContain('search_products');
+  expect((await fetch(url.replace('/mcp', '/healthz'))).status).toBe(200);
 });

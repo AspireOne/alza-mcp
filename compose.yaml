@@ -4,7 +4,11 @@ services:
     image: ${ALZA_IMAGE:-alza-mcp:0.2.0}
     restart: unless-stopped
     environment:
-      ALZA_MCP_TOKEN: ${ALZA_MCP_TOKEN:?Set a random bearer token of at least 32 characters}
+      ALZA_HTTP_AUTH: ${ALZA_HTTP_AUTH:-token}
+      ALZA_MCP_TOKEN: ${ALZA_MCP_TOKEN:-}
+      ALZA_ACCESS_TEAM_DOMAIN: ${ALZA_ACCESS_TEAM_DOMAIN:-}
+      ALZA_ACCESS_AUDIENCE: ${ALZA_ACCESS_AUDIENCE:-}
+      ALZA_ACCESS_EMAIL: ${ALZA_ACCESS_EMAIL:-}
       ALZA_PUBLIC_URL: ${ALZA_PUBLIC_URL:-}
       ALZA_AUTH_MODE: ${ALZA_AUTH_MODE:-preferred}
       ALZA_FLARESOLVERR_URL: http://flaresolverr:8191

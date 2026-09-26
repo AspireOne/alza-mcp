@@ -1,16 +1,16 @@
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { timingSafeEqual, createHash } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer } from "./server.js";
 import type { Research } from "./domain/research.js";
 import { log } from "./infra/logger.js";
 import { fail } from './infra/failure.js';
+import { createHttpAuthorizer, type HttpAuth } from './http-auth.js';
 
 const MAX_BODY = 1_048_576;
-export interface HttpOptions { token: string; publicUrl?: string; port?: number; host?: string }
+export interface HttpOptions { auth: HttpAuth; publicUrl?: string; port?: number; host?: string }
 export function httpServer(research: Research, options: HttpOptions) {
-  if (options.token.length < 32) fail('CONFIGURATION_ERROR', "ALZA_MCP_TOKEN must contain at least 32 characters.");
-  const expected = createHash('sha256').update(`Bearer ${options.token}`).digest();
+  const authorize = createHttpAuthorizer(options.auth);
+  if (options.auth.mode === 'cloudflare-access' && !options.publicUrl) fail('CONFIGURATION_ERROR', 'ALZA_PUBLIC_URL is required for Cloudflare Access.');
   const origins = new Set([`http://localhost:${options.port ?? 3000}`, `http://127.0.0.1:${options.port ?? 3000}`]);
   if (options.publicUrl) {
     let u: URL;
@@ -36,8 +36,11 @@ export function httpServer(research: Research, options: HttpOptions) {
     if (req.headers.origin && !origins.has(req.headers.origin)) { reply(res, 403, 'Origin not allowed'); return; }
     // Health is intentionally local and does not navigate the browser or expose account state.
     if (req.url === '/healthz' && req.method === 'GET') { reply(res, 200, 'ok'); return; }
-    const actual = createHash('sha256').update(req.headers.authorization ?? '').digest();
-    if (!timingSafeEqual(actual, expected)) { res.setHeader('WWW-Authenticate', 'Bearer'); reply(res, 401, 'Unauthorized'); return; }
+    const authorization = await authorize(req);
+    if (authorization !== 'ok') {
+      if (authorization === 'unavailable') { reply(res, 503, 'Cloudflare Access key verification unavailable'); return; }
+      res.setHeader('WWW-Authenticate', 'Bearer'); reply(res, 401, 'Unauthorized'); return;
+    }
     if (req.url !== '/mcp') { reply(res, 404, 'Not found'); return; }
     if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); reply(res, 405, 'Stateless MCP accepts POST only'); return; }
     if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) { reply(res, 415, 'Expected application/json'); return; }

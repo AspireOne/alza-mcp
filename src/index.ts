@@ -7,10 +7,11 @@ import { configFromEnv } from './infra/config.js';
 import { httpServer } from './http.js';
 import { importSession } from './session.js';
 import { failureOf } from './infra/failure.js';
+import { httpAuthFromEnv } from './http-auth.js';
 
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: { http: { type: 'boolean' }, help: { type: 'boolean' }, storage: { type: 'string' }, profile: { type: 'string' }, 'expected-user-id': { type: 'string' } } });
-  if (values.help) { process.stdout.write('alza-mcp [--http]\nalza-mcp session import (--storage FILE | --profile CLOSED_CHROMIUM_USER_DATA_DIR) --expected-user-id ID\nConfiguration: ALZA_DATA_DIR, ALZA_AUTH_MODE, ALZA_MCP_TOKEN, ALZA_PUBLIC_URL, ALZA_FLARESOLVERR_URL, ALZA_BYPARR_URL.\n'); return; }
+  if (values.help) { process.stdout.write('alza-mcp [--http]\nalza-mcp session import (--storage FILE | --profile CLOSED_CHROMIUM_USER_DATA_DIR) --expected-user-id ID\nConfiguration: ALZA_DATA_DIR, ALZA_AUTH_MODE, ALZA_HTTP_AUTH, ALZA_MCP_TOKEN, ALZA_PUBLIC_URL, ALZA_FLARESOLVERR_URL, ALZA_BYPARR_URL.\n'); return; }
   const config = configFromEnv();
   if (positionals.join(' ') === 'session import') {
     await importSession(config, { storage: values.storage, profile: values.profile, expectedUserId: values['expected-user-id'] ?? '' });
@@ -22,9 +23,10 @@ async function main(): Promise<void> {
   try {
     if (values.http || process.env.ALZA_TRANSPORT === 'http') {
       const port = Number(process.env.PORT ?? '3000'); if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT.');
-      const http = httpServer(application.research, { token: process.env.ALZA_MCP_TOKEN ?? '', publicUrl: process.env.ALZA_PUBLIC_URL, port });
+      const auth = httpAuthFromEnv(process.env);
+      const http = httpServer(application.research, { auth, publicUrl: process.env.ALZA_PUBLIC_URL, port });
       await new Promise<void>((resolve, reject) => { http.server.once('error', reject); http.server.listen(port, '0.0.0.0', resolve); });
-      closeTransport = http.close; log.info('http.ready', { port });
+      closeTransport = http.close; log.info('http.ready', { port, auth: auth.mode });
     } else {
       const server = createServer(application.research); await server.connect(new StdioServerTransport());
       closeTransport = () => server.close(); log.info('stdio.ready');

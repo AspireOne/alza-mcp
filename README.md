@@ -24,11 +24,13 @@ URL: https://your-alza-domain.example/mcp
 Authorization: Bearer <ALZA_MCP_TOKEN>
 ```
 
+For ChatGPT web, protect the public hostname with a Cloudflare Access self-hosted application and enable **Managed OAuth** on that application. Give its Allow policy only the intended email address. Set `ALZA_HTTP_AUTH=cloudflare-access`, `ALZA_ACCESS_TEAM_DOMAIN` to the Access team hostname (for example, `yourteam.cloudflareaccess.com`), `ALZA_ACCESS_AUDIENCE` to that application's AUD tag, and `ALZA_ACCESS_EMAIL` to the same allowed email. `ALZA_PUBLIC_URL` must be the MCP endpoint's HTTPS origin. The server validates Cloudflare's signed `Cf-Access-Jwt-Assertion` on every MCP request; an old `ALZA_MCP_TOKEN` cannot grant access in this mode. In ChatGPT, create an MCP app with URL `https://your-alza-domain.example/mcp` and OAuth authentication. Leave the optional advanced OAuth fields empty so the client can use discovery. Cloudflare Access handles the OAuth flow and prompts the user to sign in.
+
 Set the client’s per-tool timeout to at least 130 seconds to allow [bounded recovery](ARCHITECTURE.md#access-and-recovery) to finish and report its result.
 
 The endpoint uses stateless JSON responses. GET/SSE sessions and DELETE session termination are not supported. Use a client that accepts Streamable HTTP JSON responses. Locally, use `http://127.0.0.1:3000/mcp`.
 
-For Coolify, deploy [compose.yaml](compose.yaml), set the environment values, and retain the `alza-data` volume. Route Cloudflare Tunnel to the application's port 3000. A tunnel on the host can use `http://127.0.0.1:3000`; a tunnel container must share the application's Docker network and use `http://alza:3000`. Preserve the public Host header and set `ALZA_PUBLIC_URL` to that exact HTTPS origin. Expose only the application; both recovery services stay on the private Docker network. Cloudflare Access, if enabled, requires its own client credentials in addition to the MCP bearer token.
+For Coolify, deploy [compose.yaml](compose.yaml), set the environment values, and retain the `alza-data` volume. Route Cloudflare Tunnel to the application's port 3000. A tunnel on the host can use `http://127.0.0.1:3000`; a tunnel container must share the application's Docker network and use `http://alza:3000`. Preserve the public Host header and set `ALZA_PUBLIC_URL` to that exact HTTPS origin. Expose only the application; both recovery services stay on the private Docker network. Cloudflare Access needs no additional client credential at the origin; use the Managed OAuth configuration above.
 
 Container health checks, including the application’s `/healthz`, test local HTTP readiness. They do not contact Alza or prove that challenges can be solved. Compose replaces Byparr’s bundled browser-based Google probe with a local HTTP check to avoid background browser load. An unhealthy Alza session should not trigger a container restart loop.
 
@@ -36,7 +38,7 @@ On a Raspberry Pi, Docker must report working memory-limit support before relyin
 
 For a 4 GB Pi sharing the host with other services, start with `ALZA_MEMORY_LIMIT=1536m`, `FLARESOLVERR_MEMORY_LIMIT=1g`, and `BYPARR_MEMORY_LIMIT=1g`. These are ceilings, not reservations. Acceptance requires successful live browsing and forced recovery without out-of-memory kills or disruption to other services; insufficient capacity is a deployment failure. See [the recovery lifetime constraints](ARCHITECTURE.md#access-and-recovery).
 
-Use a Git-based Docker Compose application in Coolify. Coolify clones the selected branch and builds the Alza image on the deployment server; it does not need an image registry. Set `ALZA_IMAGE=<coolify-application-uuid>:main` at build time and runtime so automatic builds and deployments use the same local image tag. For automatic updates, leave the Git commit SHA unpinned, enable **Auto Deploy**, and add a signed GitHub push webhook using Coolify's **Manual Git Webhooks** endpoint and a secret. If the dashboard is private, publish only `POST /webhooks/source/github/events/manual` through an HTTPS ingress and use that public URL in GitHub; keep all other Coolify paths private. A push to the configured branch then starts a new build; verify the first webhook delivery and deployment before relying on it. Pin a commit and deploy manually when a rollback is needed. With Cloudflare Tunnel terminating public HTTPS and forwarding to the local HTTP proxy, configure an HTTP origin route in Coolify and set `ALZA_PUBLIC_URL` to the external HTTPS origin. Avoid an origin HTTPS redirect loop. Store the bearer token in Coolify's runtime environment and retain the same application volume across deployments.
+Use a Git-based Docker Compose application in Coolify. Coolify clones the selected branch and builds the Alza image on the deployment server; it does not need an image registry. Set `ALZA_IMAGE=<coolify-application-uuid>:main` at build time and runtime so automatic builds and deployments use the same local image tag. For automatic updates, leave the Git commit SHA unpinned, enable **Auto Deploy**, and add a signed GitHub push webhook using Coolify's **Manual Git Webhooks** endpoint and a secret. If the dashboard is private, publish only `POST /webhooks/source/github/events/manual` through an HTTPS ingress and use that public URL in GitHub; keep all other Coolify paths private. A push to the configured branch then starts a new build; verify the first webhook delivery and deployment before relying on it. Pin a commit and deploy manually when a rollback is needed. With Cloudflare Tunnel terminating public HTTPS and forwarding to the local HTTP proxy, configure an HTTP origin route in Coolify and set `ALZA_PUBLIC_URL` to the external HTTPS origin. Avoid an origin HTTPS redirect loop. Store the bearer token or Cloudflare Access settings, according to the selected HTTP auth mode, in Coolify's runtime environment and retain the same application volume across deployments.
 
 ## Research tools
 
@@ -124,7 +126,11 @@ For a consistent backup, stop the application, archive the complete `/data` volu
 |---|---|---|
 | `ALZA_DATA_DIR` | `.alza-mcp` locally, `/data` in Docker | Persistent profiles, account manifest and cursor key. |
 | `ALZA_AUTH_MODE` | `preferred` | Default authentication mode. |
-| `ALZA_MCP_TOKEN` | Required for HTTP | At least 32 characters; use a random value. |
+| `ALZA_HTTP_AUTH` | `token` | `token` for a static bearer token or `cloudflare-access` for Cloudflare Access Managed OAuth. |
+| `ALZA_MCP_TOKEN` | Required in `token` mode | At least 32 characters; use a random value. Ignored in Cloudflare Access mode. |
+| `ALZA_ACCESS_TEAM_DOMAIN` | Required in Cloudflare Access mode | Access team hostname without `https://` or a path. |
+| `ALZA_ACCESS_AUDIENCE` | Required in Cloudflare Access mode | AUD tag of the self-hosted Access application. |
+| `ALZA_ACCESS_EMAIL` | Required in Cloudflare Access mode | Email identity that the origin accepts. |
 | `ALZA_PUBLIC_URL` | Unset | Allowed public HTTPS origin. |
 | `PORT` | `3000` | HTTP listening port. |
 | `ALZA_TRANSPORT` | stdio | Set `http`, or pass `--http`. |
