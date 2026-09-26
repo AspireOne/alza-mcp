@@ -38,19 +38,54 @@ describe('automatic recovery', () => {
     expect(observed).toEqual([false, false, false]);
   });
   it('reads a JSON solver wrapper and destroys the temporary session after success', async () => {
-    const { access, commands } = await setup(); const op = new Operation('anonymous', 10_000);
+    const { access, commands } = await setup(); const op = new Operation('anonymous', 120_000);
     try { expect(await access.run(op, r => r.json('https://webapi.alza.cz/api/catalog/example'))).toEqual({ answer: 42 }); }
     finally { op.dispose(); }
     expect(commands.map(c => c.cmd)).toEqual(['sessions.create', 'request.get', 'sessions.destroy']);
     expect(op.meta.attempts).toMatchObject([{ provider: 'browser', outcome: 'failed' }, { provider: 'flaresolverr', outcome: 'success' }]);
+    expect(commands[1]!.maxTimeout).toBeGreaterThan(49_000);
+    expect(commands[1]!.maxTimeout).toBeLessThanOrEqual(50_000);
+    expect(op.meta.challenge).toMatchObject({ status: 'solved', provider: 'flaresolverr' });
+    if (op.meta.challenge.status === 'solved') expect(op.meta.challenge.duration_ms).toBeGreaterThanOrEqual(0);
   });
   it('detects synthetic-200 challenges, tries both solvers, then applies cooldown', async () => {
-    const { access, commands } = await setup(true); const op = new Operation('anonymous', 10_000);
+    const { access, commands } = await setup(true); const op = new Operation('anonymous', 120_000);
     try { await expect(access.run(op, r => r.page('https://www.alza.cz'))).rejects.toMatchObject({ failure: { code: 'CHALLENGE_UNRESOLVED', retry_after_ms: 300_000 } }); } finally { op.dispose(); }
     expect(commands.map(c => c.cmd)).toEqual(['sessions.create', 'request.get', 'sessions.destroy', 'request.get']);
+    expect(commands[3]!.maxTimeout).toBeGreaterThan(29_000);
+    expect(commands[3]!.maxTimeout).toBeLessThanOrEqual(30_000);
+    expect(op.meta.challenge).toEqual({ status: 'detected' });
     const count = commands.length, next = new Operation('anonymous', 10_000);
     try { await expect(access.run(next, r => r.page('https://www.alza.cz'))).rejects.toMatchObject({ failure: { code: 'CHALLENGE_UNRESOLVED' } }); } finally { next.dispose(); }
     expect(commands).toHaveLength(count);
+    expect(next.meta.challenge).toEqual({ status: 'not_detected' });
+  });
+  it('reports an expired account even when preferred access succeeds with public prices', async () => {
+    const { access, commands } = await setup();
+    await access.store.open();
+    access.store.account = { version: 1, expectedUserId: '123', generation: 'bea37cbe-e239-4ee4-a357-05ee7e626a33', importedAt: new Date().toISOString() };
+    const op = new Operation('preferred', 10_000);
+    vi.spyOn(access.browser, 'reader').mockImplementation(async (_, kind) => {
+      if (kind === 'account') throw new FailureError({ code: 'AUTH_REQUIRED', message: 'The configured Alza session expired.', retryable: false });
+      op.meta.auth.state = 'anonymous';
+      return { reader: { provider: 'browser', context: 'anonymous', canPost: true, page: async () => ({ url: 'https://www.alza.cz', html: '', status: 200, headers: {} }), json: async () => ({}) }, dispose: async () => {} };
+    });
+    try { expect((await access.run(op, r => r.page('https://www.alza.cz'))).status).toBe(200); }
+    finally { op.dispose(); }
+    expect(op.meta.auth).toEqual({ requested: 'preferred', state: 'anonymous', session_issue: { code: 'AUTH_REQUIRED', message: 'The configured Alza session expired.' } });
+    expect(op.meta.challenge).toEqual({ status: 'not_detected' });
+    expect(commands).toHaveLength(0);
+  });
+  it('reports a changed account with required auth and no anonymous fallback', async () => {
+    const { access, commands } = await setup();
+    await access.store.open();
+    access.store.account = { version: 1, expectedUserId: '123', generation: 'bea37cbe-e239-4ee4-a357-05ee7e626a33', importedAt: new Date().toISOString() };
+    vi.spyOn(access.browser, 'reader').mockRejectedValue(new FailureError({ code: 'AUTH_ACCOUNT_MISMATCH', message: 'The browser is signed into a different Alza account.', retryable: false }));
+    const op = new Operation('required', 10_000);
+    try { await expect(access.run(op, r => r.page('https://www.alza.cz'))).rejects.toMatchObject({ failure: { code: 'AUTH_ACCOUNT_MISMATCH' } }); }
+    finally { op.dispose(); }
+    expect(op.meta.auth.session_issue).toEqual({ code: 'AUTH_ACCOUNT_MISMATCH', message: 'The browser is signed into a different Alza account.' });
+    expect(commands).toHaveLength(0);
   });
   it('fails required auth before any solver can silently return public prices', async () => {
     const { access, commands } = await setup(); const op = new Operation('required', 10_000);

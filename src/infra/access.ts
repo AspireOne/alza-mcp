@@ -31,6 +31,16 @@ export class AccessCoordinator implements Access {
     const initial = op.auth !== "anonymous" && this.store.account ? "account" : "anonymous";
     return this.queue.run(op, async () => {
       let kind: "account" | "anonymous" = initial;
+      let challengeStartedAt: number | undefined;
+      const recordFailure = (code: string, message: string) => {
+        if (code === "CHALLENGE_UNRESOLVED" && challengeStartedAt === undefined) {
+          challengeStartedAt = Date.now();
+          op.meta.challenge = { status: "detected" };
+        }
+        if (kind === "account" && (code === "AUTH_REQUIRED" || code === "AUTH_ACCOUNT_MISMATCH")) {
+          op.meta.auth.session_issue = { code, message };
+        }
+      };
       const initialContext = kind === "account" ? `account:${this.store.account!.generation}` : "anonymous";
       if (expectedContext && initialContext !== expectedContext) fail("CONTEXT_CHANGED", "The account context changed. Start a new traversal.");
       const cooldown = this.cooldowns.get(initialContext) ?? 0;
@@ -57,7 +67,9 @@ export class AccessCoordinator implements Access {
           if (provider === "browser") {
             try { resource = await this.browser.reader(op, kind, deadline); }
             catch (error) {
-              if (failureOf(error).code !== "AUTH_REQUIRED" || op.auth !== "preferred") throw error;
+              const failure = failureOf(error);
+              if (failure.code !== "AUTH_REQUIRED" || op.auth !== "preferred") throw error;
+              recordFailure(failure.code, failure.message);
               op.meta.attempts.push({ provider, outcome: "failed", code: "AUTH_REQUIRED", duration_ms: Date.now() - started });
               if (expectedContext) fail("CONTEXT_CHANGED", "The account session expired. Start a new traversal.");
               kind = "anonymous";
@@ -78,6 +90,7 @@ export class AccessCoordinator implements Access {
           const result = await work(resource.reader);
           op.check();
           op.meta.attempts.push({ provider, outcome: "success", duration_ms: Date.now() - started });
+          if (challengeStartedAt !== undefined) op.meta.challenge = { status: "solved", duration_ms: Date.now() - challengeStartedAt, provider };
           op.meta.sources = [...new Set(op.meta.sources)];
           this.lastFailure = null;
           log.info("access.success", { request_id: op.id, provider, duration_ms: Date.now() - started });
@@ -85,6 +98,7 @@ export class AccessCoordinator implements Access {
         } catch (error) {
           last = error;
           const failure = failureOf(error, provider);
+          recordFailure(failure.code, failure.message);
           this.lastFailure = failure;
           op.meta.attempts.push({ provider, outcome: "failed", code: failure.code, duration_ms: Date.now() - started });
           log.warn("access.failed", { request_id: op.id, provider, code: failure.code });

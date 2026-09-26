@@ -19,7 +19,7 @@ export async function solverReader(provider: "flaresolverr" | "byparr", endpoint
       const response = await fetch(`${endpoint}/v1`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.any([op.signal, AbortSignal.timeout(timeout)]) });
       if (!response.ok) fail("RECOVERY_PROVIDER_UNAVAILABLE", `${provider} returned HTTP ${response.status}.`, { retryable: true, stage: provider });
       const data = await response.json() as Record<string, any>;
-      if (data.status !== "ok") fail("CHALLENGE_UNRESOLVED", `${provider} did not return a successful recovery.`, { retryable: true, stage: provider });
+      if (data.status !== "ok") fail("RECOVERY_PROVIDER_UNAVAILABLE", `${provider} did not return a successful recovery.`, { retryable: true, stage: provider });
       return data;
     } catch (error) {
       op.check();

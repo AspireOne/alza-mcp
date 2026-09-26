@@ -8,7 +8,8 @@ export interface Metadata {
   fetched_at: string;
   sources: string[];
   provider: Provider;
-  auth: { requested: AuthMode; state: "anonymous" | "signed_in" | "unverified" };
+  auth: { requested: AuthMode; state: "anonymous" | "signed_in" | "unverified"; session_issue: { code: "AUTH_REQUIRED" | "AUTH_ACCOUNT_MISMATCH"; message: string } | null };
+  challenge: { status: "not_detected" } | { status: "detected" } | { status: "solved"; duration_ms: number; provider: Provider };
   cache: { hit: boolean; age_ms: number };
   warnings: Notice[];
   attempts: Attempt[];

@@ -14,7 +14,7 @@ export class Operation {
     this.signal = parent ? AbortSignal.any([parent, this.controller.signal]) : this.controller.signal;
     this.timer = setTimeout(() => this.controller.abort(new FailureError({ code: "TIMEOUT", message: "The operation deadline was reached.", retryable: true })), timeoutMs);
     this.timer.unref();
-    this.meta = { request_id: this.id, fetched_at: new Date().toISOString(), sources: [], provider: "browser", auth: { requested: auth, state: "unverified" }, cache: { hit: false, age_ms: 0 }, warnings: [], attempts: [] };
+    this.meta = { request_id: this.id, fetched_at: new Date().toISOString(), sources: [], provider: "browser", auth: { requested: auth, state: "unverified", session_issue: null }, challenge: { status: "not_detected" }, cache: { hit: false, age_ms: 0 }, warnings: [], attempts: [] };
   }
   remaining(max = Infinity): number { this.check(); return Math.max(1, Math.min(max, this.deadline - Date.now())); }
   check(): void {
