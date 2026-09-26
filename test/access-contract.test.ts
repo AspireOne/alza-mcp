@@ -50,16 +50,28 @@ describe("profile ownership", () => {
 });
 
 describe("bounded operation scheduling", () => {
-  it("serializes jobs and rejects a queued call after five seconds", async () => {
+  it("keeps a queued call beyond five seconds and runs it after the owner finishes", async () => {
     vi.useFakeTimers();
     const queue = new OperationQueue();
     const a = new Operation('anonymous', 90000), b = new Operation('anonymous', 90000);
     let release!: () => void;
     const first = queue.run(a, () => new Promise<void>(resolve => { release = resolve; }));
-    const second = queue.run(b, async () => 'should not run');
-    const rejected = expect(second).rejects.toMatchObject({ failure: { code: 'BUSY' } });
-    try { await vi.advanceTimersByTimeAsync(5000); await rejected; release(); await first; expect(queue.size).toBe(0); }
+    const second = queue.run(b, async () => 'completed');
+    try { await vi.advanceTimersByTimeAsync(6000); expect(queue.size).toBe(2); release(); await first; await expect(second).resolves.toBe('completed'); expect(queue.size).toBe(0); }
     finally { a.dispose(); b.dispose(); vi.useRealTimers(); }
+  });
+  it("reports a full queue as busy and an expired wait as a timeout", async () => {
+    vi.useFakeTimers();
+    const queue = new OperationQueue(), operations = Array.from({ length: 10 }, () => new Operation('anonymous', 7000));
+    let release!: () => void;
+    const first = queue.run(operations[0]!, () => new Promise<void>(resolve => { release = resolve; }));
+    const waiting = operations.slice(1, 9).map(op => queue.run(op, async () => 'unexpected'));
+    const timedOut = waiting.map(promise => expect(promise).rejects.toMatchObject({ failure: { code: 'TIMEOUT' } }));
+    try {
+      await expect(queue.run(operations[9]!, async () => 'unexpected')).rejects.toMatchObject({ failure: { code: 'BUSY' } });
+      await vi.advanceTimersByTimeAsync(7000); await Promise.all(timedOut);
+      release(); await first; expect(queue.size).toBe(0);
+    } finally { operations.forEach(op => op.dispose()); vi.useRealTimers(); }
   });
 });
 

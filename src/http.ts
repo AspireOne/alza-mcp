@@ -19,7 +19,6 @@ export function httpServer(research: Research, options: HttpOptions) {
   }
   const hosts = new Set([...origins].map(o => new URL(o).host));
   const active = new Set<Promise<void>>();
-  const cancellations = new Map<string | number, AbortController>();
   const server = createHttpServer((req, res) => {
     const work = handle(req, res).catch(error => { log.error('http.request_failed', { name: error instanceof Error ? error.name : 'unknown' }); if (!res.headersSent) reply(res, 500, 'Internal server error'); else res.end(); }).finally(() => active.delete(work));
     active.add(work);
@@ -49,20 +48,9 @@ export function httpServer(research: Research, options: HttpOptions) {
     for await (const chunk of req) { size += chunk.length; if (size > MAX_BODY) { reply(res, 413, 'Request body too large'); return; } chunks.push(chunk); }
     let body: unknown; try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { reply(res, 400, 'Invalid JSON'); return; }
     if (Array.isArray(body)) { reply(res, 400, 'JSON-RPC batches are not supported'); return; }
-    const message = body as { id?: string | number; method?: string; params?: { requestId?: string | number } } | null;
-    if (message?.method === 'notifications/cancelled') {
-      const id = message.params?.requestId;
-      if (id !== undefined) cancellations.get(id)?.abort();
-      reply(res, 202, 'Accepted'); return;
-    }
-    const id = message?.id, controller = new AbortController();
-    if (id !== undefined) {
-      if (cancellations.has(id)) { reply(res, 409, 'Request ID is already active'); return; }
-      cancellations.set(id, controller);
-    }
-    const mcp = createServer(research, controller.signal), transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    const mcp = createServer(research), transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     try { await mcp.connect(transport); await transport.handleRequest(req, res, body); }
-    finally { if (id !== undefined) cancellations.delete(id); await mcp.close(); }
+    finally { await mcp.close(); }
   }
   return { server, close: async () => { const closed = new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await Promise.allSettled([...active]); await closed; } };
 }

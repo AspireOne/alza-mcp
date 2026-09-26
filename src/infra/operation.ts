@@ -41,7 +41,7 @@ export class OperationQueue {
         const remove = () => { const i = this.waiting.indexOf(ready); if (i >= 0) this.waiting.splice(i, 1); cleanup(); };
         const abort = () => { remove(); try { op.check(); } catch (error) { reject(error); } };
         const ready = () => { cleanup(); resolve(); };
-        timer = setTimeout(() => { remove(); reject(new FailureError({ code: "BUSY", message: "The browser is busy. Retry this operation.", retryable: true, retry_after_ms: 5000 })); }, Math.min(5000, op.remaining()));
+        timer = setTimeout(() => { remove(); reject(new FailureError({ code: "TIMEOUT", message: "The operation deadline was reached while waiting for the browser.", retryable: true })); }, op.remaining());
         op.signal.addEventListener("abort", abort, { once: true });
         this.waiting.push(ready);
       });
