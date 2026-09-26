@@ -7,7 +7,7 @@ COPY --chown=node:node src ./src
 RUN npm run build
 
 FROM build AS validation
-COPY --chmod=644 scripts/validate-api.ts ./scripts/validate-api.ts
+COPY --chown=node:node scripts/validate-api.ts ./scripts/validate-api.ts
 USER node
 ENTRYPOINT ["node", "--import", "tsx", "scripts/validate-api.ts"]
 

@@ -25,3 +25,5 @@ jobs:
       - run: npm audit
       - run: docker build -t alza-mcp:ci .
       - run: docker run --rm alza-mcp:ci --help
+      - run: docker build --target validation -t alza-mcp:validation .
+      - run: docker run --rm --entrypoint node alza-mcp:validation --import tsx -e "require('node:fs').accessSync('scripts/validate-api.ts', 4)"
