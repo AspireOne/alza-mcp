@@ -1,7 +1,7 @@
 services:
   alza:
     build: .
-    image: alza-mcp:0.2.0
+    image: ${ALZA_IMAGE:-alza-mcp:0.2.0}
     restart: unless-stopped
     environment:
       ALZA_MCP_TOKEN: ${ALZA_MCP_TOKEN:?Set a random bearer token of at least 32 characters}
