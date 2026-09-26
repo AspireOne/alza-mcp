@@ -5,16 +5,25 @@ import { alzaUrl, productId } from "../infra/urls.js";
 import { text } from "./html.js";
 
 export function money(value: unknown): string | null {
-  if (typeof value === "number") return Number.isFinite(value) && value >= 0 ? value.toFixed(2) : null;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < 0) return null;
+    value = String(value);
+  }
   if (typeof value !== "string") return null;
   const normalized = value.replace(/[\s\u00a0\u202f]/g, "");
-  const match = normalized.match(/^(\d+)(?:[,.](\d{1,2}|-))?(?:Kč|CZK)?$/);
+  const match = normalized.match(/^(\d+)(?:[,.](\d+|-))?(?:Kč|CZK)?$/);
   return match ? `${match[1]}.${(match[2] === "-" ? "00" : match[2] ?? "00").padEnd(2, "0")}` : null;
 }
 export function offer(amount: string, display: string | null, kind: Offer["kind"] = "effective", conditions: string[] = []): Offer {
   return { amount, display, kind, currency: "CZK", vat: "included", eligibility: kind === "conditional" ? "conditional" : "eligible", conditions };
 }
-export function listings(html: string): Listing[] {
+export function membershipReference(display: string): Offer | null {
+  if (!/^Bez členství\s*:/i.test(display)) return null;
+  const amount = money(display.replace(/^Bez členství\s*:\s*/i, ''));
+  if (!amount) fail('PARSE_ERROR', 'The displayed price without membership could not be parsed.');
+  return { ...offer(amount, display, 'reference', ['Bez členství']), eligibility: 'unknown' };
+}
+export function listings(html: string, signedIn = false): Listing[] {
   const $ = load(html), result: Listing[] = [], seen = new Set<number>();
   for (const node of $(".browsingitem").toArray()) {
     const card = $(node), id = Number(card.attr("data-id")), link = card.find("a.name").first();
@@ -25,8 +34,11 @@ export function listings(html: string): Listing[] {
     const displayed = text(card.find(".price .js-price-box__primary-price__value, .price .ads-pb__price-value").first().text());
     const amount = money(displayed);
     const priceTitle = text(card.find(".price .ads-pb__header").first().text());
-    const conditional = /(?:s alzaplus|s kódem|s kuponem)/i.test(priceTitle);
-    const offers = amount ? [offer(amount, displayed, conditional ? "conditional" : "effective", conditional ? [priceTitle] : [])] : [];
+    const comparison = membershipReference(text(card.find('.price .ads-pb__original-price').first().text()));
+    const membershipApplied = signedIn && !!comparison && !!card.find('.price .ads-pb--alza-plus').length;
+    const conditional = /(?:s kódem|s kuponem)/i.test(priceTitle) || /s alzaplus/i.test(priceTitle) && !membershipApplied;
+    const offers = amount ? [offer(amount, displayed, conditional ? "conditional" : "effective", conditional || membershipApplied ? [priceTitle] : [])] : [];
+    if (comparison) offers.push(comparison);
     if (!amount && card.find(".price").length && card.find(".price").text().trim()) fail("PARSE_ERROR", "The price of an Alza listing could not be parsed.");
     const ratingRaw = text(card.find(".star-rating-block__value").text());
     const countRaw = text(card.find(".star-rating-block__count").text()).replace(/[^\d]/g, "");

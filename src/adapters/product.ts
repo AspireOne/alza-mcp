@@ -4,7 +4,7 @@ import { PRODUCT_SECTIONS } from "../domain/contracts.js";
 import { fail, failureOf } from "../infra/failure.js";
 import { productId, alzaUrl } from "../infra/urls.js";
 import { jsonLd, object, pageData, string, text } from "./html.js";
-import { money, offer } from "./listings.js";
+import { money, offer, membershipReference } from "./listings.js";
 
 const available = (data: unknown): Section<unknown> => ({ state: "available", data });
 const absent: Section<unknown> = { state: "not_provided" };
@@ -85,6 +85,8 @@ export function parseProduct(html: string, url: string, id: number, signedIn: bo
       else if (main.length || Object.keys(baseOffer).length) fail("SCHEMA_CHANGED", "The effective product price could not be parsed.");
       const withoutVat = text(main.find('.js-secondary-price').text());
       if (withoutVat) { const parsed = money(withoutVat.replace(/bez DPH/i, "")); if (!parsed) fail("PARSE_ERROR", "The price without VAT could not be parsed."); prices.push({ ...offer(parsed, withoutVat, signedIn ? "effective" : "public"), currency, vat: "excluded" }); }
+      const comparison = membershipReference(text(main.find('.ads-pb__original-price').first().text()));
+      if (comparison) prices.push({ ...comparison, currency, vat: vat === true ? 'included' : vat === false ? 'excluded' : 'unknown' });
       for (const el of $('.js-price-detail__alternative-price-box-wrapper').toArray()) {
         const n = $(el);
         // Financing interest and monthly installments are not product prices.

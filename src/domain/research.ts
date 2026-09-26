@@ -96,7 +96,8 @@ export class Research {
         return { products: [], total: 0, next: false, effectiveUrl: doc.url };
       }
       const body = filterRequest(doc.html, query, page), effectiveUrl = `${doc.url.split("#")[0]}${body.hash}`;
-      const parsed = reader.canPost ? parseFilter(await reader.json(`${BASE_URL}${FILTER_PATH}`, body), page) : parseRenderedSearch((await reader.page(effectiveUrl)).html, page, query);
+      const signedIn = op.meta.auth.state === 'signed_in';
+      const parsed = reader.canPost ? parseFilter(await reader.json(`${BASE_URL}${FILTER_PATH}`, body), page, signedIn) : parseRenderedSearch((await reader.page(effectiveUrl)).html, page, query, signedIn);
       return { ...parsed, effectiveUrl };
     });
     for (const p of result.products) for (const offer of p.offers) {

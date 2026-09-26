@@ -131,15 +131,15 @@ export function filterHash(body: Record<string, any>): string {
   }
   return parts.join("&");
 }
-export function parseFilter(raw: unknown, page: number): { products: ReturnType<typeof listings>; total: number; next: boolean } {
+export function parseFilter(raw: unknown, page: number, signedIn = false): { products: ReturnType<typeof listings>; total: number; next: boolean } {
   const d = object(object(raw).d);
   if (!Number.isInteger(d.Count) || (d.Count as number) < 0 || d.Page !== page || typeof d.Boxes !== "string" || typeof d.PagerBottom !== "string") fail("SCHEMA_CHANGED", "Alza's catalog response is missing its page, count, or listings.");
-  const products = listings(d.Boxes), pager = load(d.PagerBottom);
+  const products = listings(d.Boxes, signedIn), pager = load(d.PagerBottom);
   if (!products.length && (d.Count as number) > 0) fail("INCOMPLETE_RESULTS", "Alza reports matches but returned no listings for this page.");
   return { products, total: d.Count as number, next: pager("a.next").length > 0 };
 }
-export function parseRenderedSearch(html: string, page: number, query: SearchQuery): { products: ReturnType<typeof listings>; total: number | null; next: boolean } {
-  const $ = load(html), data = object(pageData(html).data), products = listings(html);
+export function parseRenderedSearch(html: string, page: number, query: SearchQuery, signedIn = false): { products: ReturnType<typeof listings>; total: number | null; next: boolean } {
+  const $ = load(html), data = object(pageData(html).data), products = listings(html, signedIn);
   const current = $("a.pgn.sel, [aria-current=page].pgn").first();
   if (products.length && (current.length ? Number(current.text()) !== page : page !== 1 || $("a.pgn").length > 0)) fail("PAGINATION_STALLED", "Recovery did not render the requested result page.");
   if (!products.length && data.isEmpty !== true) fail("INCOMPLETE_RESULTS", "Recovery returned no listings without confirming an empty search.");
