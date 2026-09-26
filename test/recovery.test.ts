@@ -10,11 +10,12 @@ import { Operation } from '../src/infra/operation.js';
 import { FailureError } from '../src/infra/failure.js';
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); vi.restoreAllMocks(); });
-async function setup(challenge = false) {
+async function setup(challenge = false, onCommand: () => void = () => {}) {
   const commands: Array<Record<string, any>> = [];
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString()); commands.push(body);
+    onCommand();
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify(body.cmd === 'request.get' ? { status: 'ok', solution: { status: 200, url: body.url, response: challenge ? '<title>Just a moment...</title><form id="challenge-form"></form>' : '<html><pre>{&quot;answer&quot;:42}</pre></html>' } } : { status: 'ok' }));
   });
@@ -26,6 +27,16 @@ async function setup(challenge = false) {
   return { access, commands };
 }
 describe('automatic recovery', () => {
+  it('releases the primary browser before contacting an external solver', async () => {
+    let primaryRunning = true;
+    const observed: boolean[] = [];
+    const { access } = await setup(false, () => observed.push(primaryRunning));
+    vi.spyOn(access.browser, 'close').mockImplementation(async () => { primaryRunning = false; });
+    const op = new Operation('anonymous', 10_000);
+    try { expect(await access.run(op, r => r.json('https://webapi.alza.cz/api/catalog/example'))).toEqual({ answer: 42 }); }
+    finally { op.dispose(); }
+    expect(observed).toEqual([false, false, false]);
+  });
   it('reads a JSON solver wrapper and destroys the temporary session after success', async () => {
     const { access, commands } = await setup(); const op = new Operation('anonymous', 10_000);
     try { expect(await access.run(op, r => r.json('https://webapi.alza.cz/api/catalog/example'))).toEqual({ answer: 42 }); }

@@ -6,3 +6,4 @@
 !src/**
 !scripts
 !scripts/entrypoint.sh
+!scripts/validate-api.ts

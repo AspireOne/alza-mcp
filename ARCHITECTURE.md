@@ -8,7 +8,7 @@ A managed, persistent Patchright Chromium profile is the primary data source. Ru
 
 The browser executes storefront GET requests and the read-only catalogue filter POST in its own context. Page scripts may perform their normal browser traffic; the adapter exposes no transaction operations. It does not block media or replace Chromium's native user agent.
 
-FlareSolverr is the second provider. It uses a temporary session, can receive scoped Alza cookies, and must independently verify an imported account. Byparr is the final anonymous provider. Its pinned version has no equivalent account-session import contract, so `auth=required` cannot use it. Both are private services, not proxies exposed to MCP clients.
+FlareSolverr is the second provider. It uses a temporary session, can receive scoped Alza cookies, and must independently verify an imported account. Byparr is the final anonymous provider. Its pinned version has no equivalent account-session import contract, so `auth=required` cannot use it. Both are private services, not proxies exposed to MCP clients. Before external recovery starts, the primary browser closes to release memory; its persistent profile is reopened on the next primary operation.
 
 Recovery repeats a read operation through an eligible provider. It is bounded by a 90-second operation deadline: primary browser 20 seconds, FlareSolverr 30 seconds, Byparr 25 seconds, with the remainder for queueing and cleanup. One transient browser request retry shares the existing primary deadline. Rate limiting, account mismatch and parser failures are not treated as reasons to hammer another provider. Failed challenge recovery starts a five-minute context-specific cooldown. No human CAPTCHA flow or paid solver is required.
 

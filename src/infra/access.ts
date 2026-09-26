@@ -65,6 +65,9 @@ export class AccessCoordinator implements Access {
               resource = await this.browser.reader(op, kind, deadline);
             }
           } else {
+            // Persist and release Chromium before starting another browser on
+            // memory-constrained hosts. The next primary request reopens it.
+            await this.browser.close();
             const account = kind === "account" ? this.store.account : undefined;
             const storage = account ? await this.store.importedStorage() : undefined;
             const cookies = storage?.cookies.map(({ expires, ...cookie }) => ({ ...cookie, ...(expires > 0 ? { expiry: Math.floor(expires) } : {}) }));

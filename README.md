@@ -6,7 +6,7 @@ The server attempts automatic challenge recovery, but cannot guarantee CAPTCHA-f
 
 ## Run on a home server
 
-Use Docker on x86_64 Linux. Allow at least 4 GB of memory for the application and recovery browsers, plus capacity for the host and other services.
+Use Docker on x86_64 or ARM64 Linux. Chromium and both recovery images have native builds for these architectures. Account for the application and recovery browsers alongside the host's existing services; verify peak memory during recovery as well as normal requests.
 
 ```sh
 cp .env.example .env
@@ -29,6 +29,12 @@ The endpoint uses stateless JSON responses. GET/SSE sessions and DELETE session 
 For Coolify, deploy [compose.yaml](compose.yaml), set the environment values, and retain the `alza-data` volume. Route Cloudflare Tunnel to the application's port 3000. A tunnel on the host can use `http://127.0.0.1:3000`; a tunnel container must share the application's Docker network and use `http://alza:3000`. Preserve the public Host header and set `ALZA_PUBLIC_URL` to that exact HTTPS origin. Expose only the application; both recovery services stay on the private Docker network. Cloudflare Access, if enabled, requires its own client credentials in addition to the MCP bearer token.
 
 `/healthz` is a process check. It does not contact Alza or prove that challenges can be solved. An unhealthy Alza session should not trigger a container restart loop.
+
+On a Raspberry Pi, Docker must report working memory-limit support before relying on Compose limits. If the memory controller is disabled, back up `/boot/firmware/cmdline.txt`, append `cgroup_enable=memory` to its existing single line, and reboot during a maintenance window. Verify `memory` appears in `/sys/fs/cgroup/cgroup.controllers` and that `docker info` no longer warns about missing memory-limit support.
+
+For a 4 GB Pi sharing the host with other services, start with `ALZA_MEMORY_LIMIT=1g`, `FLARESOLVERR_MEMORY_LIMIT=640m`, and `BYPARR_MEMORY_LIMIT=640m`. These are ceilings, not reservations. Acceptance requires successful live browsing and forced recovery without out-of-memory kills or disruption to other services; insufficient capacity is a deployment failure. See [the recovery lifetime constraints](ARCHITECTURE.md#access-and-recovery).
+
+Use a Git-based Docker Compose application in Coolify and deploy a verified commit. With Cloudflare Tunnel terminating public HTTPS and forwarding to the local HTTP proxy, configure an HTTP origin route in Coolify and set `ALZA_PUBLIC_URL` to the external HTTPS origin. Avoid an origin HTTPS redirect loop. Store the bearer token in Coolify's runtime environment and retain the same application volume across deployments.
 
 ## Research tools
 
@@ -106,6 +112,10 @@ You can find your numeric ID in the signed-in site's `_pageData.userId` page boo
 
 Protect the data volume and export like a password. Delete the transfer file after a successful import. The application does not expose cookies, profile downloads or session-import tools over MCP.
 
+For Coolify session renewal, stop the application through Coolify and mount its existing `/data` volume into a one-off import container using the deployed image. Obtain the actual volume name from the application's container mounts; running Compose under a different project name can create an unrelated empty volume. Start the application through Coolify after import and verify an `auth=required` product request.
+
+For a consistent backup, stop the application, archive the complete `/data` volume with file permissions preserved, then restart it. Keep the archive private and copy it off the Pi. Record the deployed Git commit with the backup. Roll back application code by deploying the prior verified commit; restore the matching volume backup only when needed. A restarted server invalidates existing traversal cursors.
+
 ## Configuration and local development
 
 | Variable | Default | Purpose |
@@ -121,6 +131,9 @@ Protect the data volume and export like a password. Delete the transfer file aft
 | `ALZA_HEADLESS` | `false` | Headed browser is the intended deployment. Docker supplies Xvfb. |
 | `ALZA_BROWSER_EXECUTABLE` | Bundled Chromium | Diagnostic override; mismatched versions are not the tested configuration. |
 | `ALZA_LOG_LEVEL` | `info` | Structured stderr logging. |
+| `ALZA_MEMORY_LIMIT` | `2g` | Compose memory ceiling for the application and its browser. |
+| `FLARESOLVERR_MEMORY_LIMIT` | `1g` | Compose memory ceiling for FlareSolverr. |
+| `BYPARR_MEMORY_LIMIT` | `1g` | Compose memory ceiling for Byparr. |
 
 Only `www.alza.cz` is supported. Old CDP attachment, locale switching, pickup tools, product resources and shopping prompts were removed in 0.2. Browser downloads happen during explicit installation or Docker build, never during an MCP call.
 

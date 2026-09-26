@@ -35,6 +35,8 @@ Set `ALZA_MCP_TOKEN` through a private environment or secret manager. Optional `
 
 Exercise the Docker deployment as well as the local browser. Confirm that the data volume survives a container replacement, both solver ports remain private, bad credentials and origins fail, and required authentication fails explicitly without an imported account. Compare a required-auth result's effective price against the same account in the normal storefront before relying on company or AlzaPlus benefits.
 
+The Docker `validation` target includes the validator and its development dependencies without installing a browser. Build it with `docker build --target validation -t alza-mcp-validation .`. Run it with `ALZA_MCP_URL`, `ALZA_MCP_TOKEN`, and a writable, persistent `ALZA_VALIDATION_REPORT` path. Add `--soak` after the image name for the acceptance trial. The runner must reach the public endpoint; it does not need access to the browser profile volume.
+
 ## Home-server acceptance trial
 
 Run `npm run validate:soak` with `ALZA_MCP_URL` pointing to the actual home deployment. The default trial lasts seven days and samples one data operation every 30 minutes. Its acceptance rule requires at least 200 calls and at least 99% successful, semantically valid responses across a full seven days. Failures remain in the report even when a later call succeeds.
