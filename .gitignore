@@ -10,3 +10,7 @@ coverage/
 *.tsbuildinfo
 validation-results.json
 .postinstall.log
+
+.alza-mcp/
+.playwright-cli/
+.artifacts/
