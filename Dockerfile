@@ -1,13 +1,13 @@
 FROM node:24-bookworm@sha256:6dac556d980b7f0e5498d08f08cee0ca67798b4ad6c23964a9214920e67758d0 AS build
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY --chmod=644 package.json package-lock.json ./
 RUN npm ci --ignore-scripts
-COPY tsconfig.json ./
-COPY src ./src
+COPY --chmod=644 tsconfig.json ./
+COPY --chown=node:node src ./src
 RUN npm run build
 
 FROM build AS validation
-COPY scripts/validate-api.ts ./scripts/validate-api.ts
+COPY --chmod=644 scripts/validate-api.ts ./scripts/validate-api.ts
 USER node
 ENTRYPOINT ["node", "--import", "tsx", "scripts/validate-api.ts"]
 
@@ -17,7 +17,7 @@ RUN npm prune --omit=dev --ignore-scripts
 FROM node:24-bookworm@sha256:6dac556d980b7f0e5498d08f08cee0ca67798b4ad6c23964a9214920e67758d0
 ENV NODE_ENV=production PLAYWRIGHT_BROWSERS_PATH=/opt/browsers ALZA_DATA_DIR=/data PORT=3000
 WORKDIR /app
-COPY --from=production-dependencies /app/package.json /app/package-lock.json ./
+COPY --from=production-dependencies --chmod=644 /app/package.json /app/package-lock.json ./
 COPY --from=production-dependencies /app/node_modules ./node_modules
 RUN apt-get update && apt-get install -y --no-install-recommends xvfb xauth tini \
     && node node_modules/patchright/cli.js install --with-deps chromium \

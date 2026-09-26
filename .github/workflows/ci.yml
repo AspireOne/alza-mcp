@@ -24,3 +24,4 @@ jobs:
       - run: npm run build
       - run: npm audit
       - run: docker build -t alza-mcp:ci .
+      - run: docker run --rm alza-mcp:ci --help
