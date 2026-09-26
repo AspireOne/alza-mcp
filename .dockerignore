@@ -7,3 +7,4 @@
 !scripts
 !scripts/entrypoint.sh
 !scripts/validate-api.ts
+!scripts/validation-report.ts

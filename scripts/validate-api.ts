@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 import assert from 'node:assert/strict';
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir } from 'node:fs/promises';
 import { setTimeout } from 'node:timers/promises';
 import { dirname } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -8,15 +8,22 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { buildApplication, createServer } from '../src/server.js';
 import type { Result, SearchPage, Product, ReviewsPage } from '../src/domain/contracts.js';
+import { finishTrial, readChecks, SEVEN_DAYS_MS } from './validation-report.js';
 
 const soak = process.argv.includes('--soak');
 const report = process.env.ALZA_VALIDATION_REPORT ?? '.artifacts/validation.jsonl';
 const categoryId = Number(process.env.ALZA_TEST_CATEGORY ?? 18845887), productId = Number(process.env.ALZA_TEST_PRODUCT ?? 12611062);
 const auth = process.env.ALZA_TEST_AUTH ?? 'anonymous';
 const client = new Client({ name: 'alza-validation', version: '0.2.0' });
+const stopped = new AbortController();
+const start = process.env.ALZA_SOAK_STARTED_AT ? Date.parse(process.env.ALZA_SOAK_STARTED_AT) : Date.now();
+let aborted = false;
+const stop = () => stopped.abort();
+if (soak) { process.once('SIGTERM', stop); process.once('SIGINT', stop); }
 let close: () => Promise<void> = async () => {};
 await mkdir(dirname(report), { recursive: true });
 try {
+  if (soak && (!Number.isFinite(start) || start > Date.now())) throw new Error('Invalid ALZA_SOAK_STARTED_AT.');
   if (process.env.ALZA_MCP_URL) {
     await client.connect(new StreamableHTTPClientTransport(new URL(process.env.ALZA_MCP_URL), { requestInit: { headers: { Authorization: `Bearer ${process.env.ALZA_MCP_TOKEN ?? ''}` } } }));
   } else {
@@ -26,7 +33,7 @@ try {
   async function call<T>(name: string, args: Record<string, unknown>, verify?: (data: T) => void): Promise<T> {
     const start = Date.now(); let result: Result<T> | undefined, ok = false;
     try {
-      const wire = await client.callTool({ name, arguments: args }, undefined, { timeout: 130_000 });
+      const wire = await client.callTool({ name, arguments: args }, undefined, { timeout: 130_000, signal: stopped.signal });
       result = wire.structuredContent as unknown as Result<T>;
       assert(result && ['ok', 'partial', 'error'].includes(result.status), 'Missing structured result');
       assert.deepEqual(JSON.parse((wire.content as Array<{ text: string }>)[0]!.text), result, 'Text and structured content disagree');
@@ -49,18 +56,19 @@ try {
   ];
   if (soak) {
     if (!process.env.ALZA_MCP_URL) throw new Error('The soak trial requires ALZA_MCP_URL pointing to the deployed server.');
-    const interval = Number(process.env.ALZA_SOAK_INTERVAL_MS ?? 1_800_000), duration = Number(process.env.ALZA_SOAK_DURATION_MS ?? 604_800_000);
+    const interval = Number(process.env.ALZA_SOAK_INTERVAL_MS ?? 1_800_000), duration = Number(process.env.ALZA_SOAK_DURATION_MS ?? SEVEN_DAYS_MS);
     if (!Number.isFinite(interval) || interval < 60_000 || !Number.isFinite(duration) || duration < interval) throw new Error('Invalid soak timing.');
-    const start = Date.now(); let index = 0;
+    const records = await readChecks(report, start);
+    if (process.env.ALZA_SOAK_STARTED_AT && !records.length) throw new Error('Cannot resume without records from the original trial.');
+    console.info(JSON.stringify({ event: 'soak.started', started_at: new Date(start).toISOString(), ends_at: new Date(start + duration).toISOString(), retained_checks: records.length }));
+    let index = records.length;
+    const last = records.at(-1);
+    if (last) await setTimeout(Math.max(1, Math.min(Date.parse(last.at) + interval, start + duration) - Date.now()), undefined, { signal: stopped.signal });
     while (Date.now() - start < duration) {
+      stopped.signal.throwIfAborted();
       try { await checks[index++ % checks.length]!(); } catch (error) { console.error(error instanceof Error ? error.message : 'Validation failed'); }
-      await setTimeout(Math.min(interval, Math.max(1, duration - (Date.now() - start))));
+      await setTimeout(Math.min(interval, Math.max(1, duration - (Date.now() - start))), undefined, { signal: stopped.signal });
     }
-    const records = (await readFile(report, 'utf8')).trim().split('\n').map(line => JSON.parse(line)).filter(r => Date.parse(r.at) >= start);
-    const successes = records.filter(r => r.ok).length, rate = successes / records.length;
-    const accepted = Date.now() - start >= 604_800_000 && records.length >= 200 && rate >= 0.99;
-    console.log(JSON.stringify({ calls: records.length, success_rate: rate, seven_day_acceptance: accepted }));
-    if (!accepted) process.exitCode = 1;
   } else {
     await call('get_session_status', {});
     for (const check of checks) await check();
@@ -79,4 +87,15 @@ try {
     } while (next);
     console.log(`Validated all tools, ${ids.size} unique products and ${written} written reviews.`);
   }
-} finally { await client.close(); await close(); }
+} catch (error) {
+  if (!soak) throw error;
+  aborted = true; process.exitCode = 1;
+  console.error(stopped.signal.aborted ? 'Validation trial interrupted.' : 'Validation trial aborted; inspect the saved report.');
+} finally {
+  try {
+    if (soak && Number.isFinite(start) && !await finishTrial(report, start, aborted, process.env.ALZA_VALIDATION_DISCORD_WEBHOOK)) process.exitCode = 1;
+  } finally {
+    process.removeListener('SIGTERM', stop); process.removeListener('SIGINT', stop);
+    await client.close(); await close();
+  }
+}

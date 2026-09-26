@@ -43,4 +43,8 @@ Run `npm run validate:soak` with `ALZA_MCP_URL` pointing to the actual home depl
 
 `ALZA_SOAK_INTERVAL_MS`, `ALZA_SOAK_DURATION_MS`, and `ALZA_VALIDATION_REPORT` allow a shorter diagnostic run or a separate report path. A shortened run cannot pass seven-day acceptance. Keep the client process supervised for the whole trial; inspect authentication, challenge recovery, memory growth and restart behavior alongside the numerical result. A source-tree smoke test is not evidence that the home server passed this trial.
 
+To resume an existing trial, set `ALZA_SOAK_STARTED_AT` to its original ISO start time and reuse its report. This preserves the deadline and recorded failures.
+
+For a Discord completion notification, supply `ALZA_VALIDATION_DISCORD_WEBHOOK` through a private environment. The runner saves the outcome and delivery status to `${ALZA_VALIDATION_REPORT}.summary.json`, then reports success, failure, or interruption to Discord. Delivery retries are bounded; a failed delivery remains visible in the saved summary and process exit status. Allow at least 130 seconds for graceful container shutdown. A forced kill or power loss cannot send a notification.
+
 When reporting breakage, include the operation, failure code, provider attempts and a sanitized description of the expected response. Do not attach a full HAR or session export: those can contain credentials. Commit self-contained milestones using conventional commit messages.
