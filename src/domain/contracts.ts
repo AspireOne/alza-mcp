@@ -54,7 +54,7 @@ export interface Listing {
   rating_count: number | null;
   sponsored: boolean;
 }
-export interface Facet { id: number; name: string; values: Array<{ id: string; label: string; count: number | null }> }
+export interface Facet { id: number; name: string; kind: "enum" | "range"; values: Array<{ id: string; label: string; count: number | null; numeric_value?: number }> }
 export interface Category { id: number; name: string; url: string }
 export interface SearchFilters {
   min_price?: number;
@@ -62,7 +62,7 @@ export interface SearchFilters {
   in_stock?: boolean;
   condition?: Array<"new" | "opened" | "used">;
   manufacturers?: number[];
-  facets?: Array<{ id: number; values: string[] }>;
+  facets?: Array<{ id: number; values?: string[]; from?: number; to?: number }>;
 }
 export const SORTS = ["relevance", "bestselling", "price_asc", "price_desc", "rating", "newest"] as const;
 export type Sort = typeof SORTS[number];

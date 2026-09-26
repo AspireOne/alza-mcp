@@ -1,0 +1,84 @@
+import { describe, expect, it } from 'vitest';
+import { Research } from '../src/domain/research.js';
+import { configFromEnv } from '../src/infra/config.js';
+import { Cursors } from '../src/infra/cursor.js';
+import type { Access, Reader } from '../src/infra/reader.js';
+import type { Operation } from '../src/infra/operation.js';
+import { fail } from '../src/infra/failure.js';
+import { parseProduct } from '../src/adapters/product.js';
+import { parseReviews } from '../src/adapters/reviews.js';
+import { money } from '../src/adapters/listings.js';
+import { filterRequest } from '../src/adapters/catalog.js';
+
+const bootstrap = '<script>var _pageData = {"isUserLogged":false,"categoryId":18845887,"configurationId":3,"data":{"categoryTypeId":1,"searchTerm":"disk"}};</script><a data-sort="0"></a><a data-sort="1"></a>';
+const card = (id: number) => `<div class="browsingitem" data-id="${id}" data-code="shared"><a class="name" href="/disk-d${id}.htm">Disk ${id}</a><div class="price"><span class="js-price-box__primary-price__value">1 234,-</span></div></div>`;
+function harness(pages: Array<{ ids: number[]; total: number; next: boolean }>) {
+  let authenticated = true, checks = 0; const requests: unknown[] = [];
+  const reader: Reader = { provider: 'browser', canPost: true, context: 'account:example', page: async url => ({ url, html: bootstrap, status: 200, headers: {} }), json: async (_, body) => {
+    requests.push(body); const i = (body as {page: number}).page - 1, p = pages[i]!;
+    return { d: { Count: p.total, Page: i + 1, Boxes: p.ids.map(card).join(''), PagerBottom: p.next ? '<a class="next"></a>' : '' } };
+  } };
+  const access: Access = { run: async <T>(op: Operation, work: (r: Reader) => Promise<T>, context?: string) => { checks++; if (context && context !== reader.context) fail('CONTEXT_CHANGED', 'changed'); if (!authenticated) fail('AUTH_REQUIRED', 'expired'); op.meta.auth.state = 'signed_in'; return work(reader); }, status: () => ({}), close: async () => {} };
+  return { research: new Research(configFromEnv({}), access, new Cursors('x'.repeat(64))), requests, expire: () => { authenticated = false; }, checks: () => checks };
+}
+const okData = (result: Awaited<ReturnType<Research['call']>>): any => { expect(result.status).not.toBe('error'); return 'data' in result ? result.data : undefined; };
+
+describe('research traversal contracts', () => {
+  it('retrieves every page, binds filters and auth, and proves exhaustion against total', async () => {
+    const h = harness([{ ids: [1, 2], total: 3, next: true }, { ids: [3], total: 3, next: false }]);
+    const first = await h.research.call('search_products', { category_id: 18845887, filters: { max_price: 4000 }, sort: 'price_asc', auth: 'required' });
+    expect(first.status).toBe('ok'); const a = okData(first);
+    const second = await h.research.call('search_products', { cursor: a.next_cursor }); const b = okData(second);
+    expect(b.products.map((p: any) => p.id)).toEqual([3]); expect(b.exhausted).toBe(true); expect(b.next_cursor).toBeNull();
+    expect(h.requests).toMatchObject([{ page: 1, maxPrice: 4000, sort: 1 }, { page: 2, maxPrice: 4000, sort: 1 }]);
+    expect(second.meta.auth.requested).toBe('required');
+    expect(await h.research.call('search_products', { cursor: a.next_cursor, auth: 'anonymous' })).toMatchObject({ status: 'error', error: { code: 'CONTEXT_CHANGED' } });
+  });
+  it('returns useful partial data without claiming completion when counts change or pages repeat', async () => {
+    const h = harness([{ ids: [1, 2], total: 4, next: true }, { ids: [2, 3], total: 3, next: false }]);
+    const first = okData(await h.research.call('search_products', { query: 'disk' }));
+    const result = await h.research.call('search_products', { cursor: first.next_cursor });
+    expect(result).toMatchObject({ status: 'partial', data: { exhausted: false, next_cursor: null }, errors: [{ code: 'RESULT_SET_CHANGED' }, { code: 'RESULT_SET_CHANGED' }] });
+    expect(okData(result).products).toHaveLength(2);
+  });
+  it('does not treat truncated pagination as an empty successful ending', async () => {
+    const h = harness([{ ids: [1], total: 40, next: false }]);
+    expect(await h.research.call('search_products', { query: 'disk' })).toMatchObject({ status: 'partial', errors: [{ code: 'INCOMPLETE_RESULTS' }] });
+  });
+  it('verifies required authentication before serving a cached result', async () => {
+    const h = harness([{ ids: [1], total: 1, next: false }]); const args = { query: 'disk', auth: 'required' };
+    await h.research.call('search_products', args);
+    const cached = await h.research.call('search_products', args); expect(cached.meta.cache.hit).toBe(true); expect(h.requests).toHaveLength(1);
+    h.expire(); expect(await h.research.call('search_products', args)).toMatchObject({ status: 'error', error: { code: 'AUTH_REQUIRED' } }); expect(h.checks()).toBe(3);
+  });
+  it('rejects ambiguous product codes and unknown filters explicitly', async () => {
+    const h = harness([{ ids: [1, 2], total: 2, next: false }]);
+    expect(await h.research.call('get_product', { code: 'shared' })).toMatchObject({ status: 'error', error: { code: 'AMBIGUOUS_PRODUCT' } });
+    expect(await h.research.call('search_products', { query: 'disk', filters: { facets: [{ id: 999, values: ['missing'] }] } })).toMatchObject({ status: 'error', error: { code: 'UNSUPPORTED_FILTER' } });
+  });
+  it('rejects a valid signed cursor after a server restart', async () => {
+    const h = harness([{ ids: [1], total: 2, next: true }]); const first = okData(await h.research.call('search_products', { query: 'disk' }));
+    expect(await harness([]).research.call('search_products', { cursor: first.next_cursor })).toMatchObject({ status: 'error', error: { code: 'CURSOR_EXPIRED' } });
+  });
+});
+
+describe('source fidelity', () => {
+  it('keeps precision, displayed rounding, VAT and conditional offers separate', () => {
+    const html = `<script>var _pageData={"isUserLogged":true,"data":{"cid":42,"commodityCode":"ABC"}};</script><script type="application/ld+json">{"@type":"Product","name":"Disk","offers":{"price":7199.1,"priceCurrency":"CZK"}}</script><div class="js-price-detail__main-price-box-wrapper"><span class="js-price-box__primary-price__value">7 199,-</span><span class="js-secondary-price">bez DPH 5 950,-</span></div><div class="js-price-detail__alternative-price-box-wrapper"><div data-slot="pb-title">S kódem SALE</div><span data-slot="pb-price">6 999,-</span></div><div id="descAnnotation"></div>`;
+    const p = parseProduct(html, 'https://www.alza.cz/disk-d42.htm', 42, true, ['offers', 'description']);
+    expect(p.sections.offers).toMatchObject({ state: 'available', data: [{ amount: '7199.10', display: '7 199,-', vat: 'included', kind: 'effective' }, { amount: '5950.00', vat: 'excluded' }, { amount: '6999.00', kind: 'conditional' }] });
+    expect(p.sections.description).toMatchObject({ state: 'failed', error: { code: 'SECTION_INCOMPLETE' } });
+    expect(money('Ušetříte 500,-')).toBeNull();
+  });
+  it('preserves complete review text and rejects a stalled continuation', () => {
+    const body = 'Complete review. '.repeat(200);
+    const raw = { paging: { size: 1, limit: 10, next: null }, value: [{ rating: 4, description: body, positives: ['one'], negatives: [], images: [], response: { text: 'Seller response' }, isTranslated: true, commodityName: 'Different variant', verifiedPurchaseTag: { label: 'Ověřený nákup' } }] };
+    expect(parseReviews(raw, 42, 0).reviews[0]).toMatchObject({ body, translated: true, variant: 'Different variant', verified_purchase: 'Ověřený nákup', response: { text: 'Seller response' } });
+    expect(() => parseReviews({ ...raw, paging: { ...raw.paging, next: { href: 'https://webapi.alza.cz/api/catalog/v2/commodities/42/reviews?offset=0' } } }, 42, 0)).toThrow(/continuation/);
+    expect(() => parseReviews({ message: 'The Ucik field is required.' }, 42, 0)).toThrow(/schema/);
+  });
+  it('maps advertised enum IDs and numeric range units to the upstream contract', () => {
+    const html = bootstrap + `<div class="parameter enum" data-parameterid="10"><span class="parameterName">Type</span><div class="parameterValue"><span class="name">SSD</span><input value="4" data-key="10-4"></div></div><div class="parameter slider" data-parameterid="20"><span class="parameterName">Size</span></div><script>_parameterTypes[20]={name:'Size',values:[{id:1,text:'1 GB',count:2,value:1000},{id:2,text:'2 GB',count:3,value:2000}]};</script>`;
+    expect(filterRequest(html, { category_id: 18845887, filters: { facets: [{ id: 10, values: ['10-4'] }, { id: 20, from: 1000, to: 2000 }] } }, 1)).toMatchObject({ parameters: [{ typeId: 10, values: ['4'], valueIds: ['10-4'] }, { typeId: 20, valueFrom: 1000, valueTo: 2000 }], hash: '#f&cud=0&pg=1&prod=&par10=10-4&par20=1000--2000' });
+  });
+});

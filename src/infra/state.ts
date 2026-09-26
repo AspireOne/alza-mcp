@@ -67,7 +67,7 @@ export class StateStore {
 export function scopedStorage(raw: unknown): Storage {
   const storage = storageSchema.parse(raw);
   const cookies = storage.cookies.filter(c => /^(?:\.)?(?:[a-z0-9-]+\.)*alza\.cz$/i.test(c.domain) && !/^(?:__cf|_cf|cf_clearance)/i.test(c.name));
-  const origins = storage.origins.filter(o => { const u = new URL(o.origin); return u.protocol === "https:" && /^(?:[a-z0-9-]+\.)*alza\.cz$/i.test(u.hostname); });
+  const origins = storage.origins.filter(o => { const u = new URL(o.origin); return u.protocol === "https:" && ["www.alza.cz", "webapi.alza.cz"].includes(u.hostname) && !u.port; });
   if (!cookies.length) fail("AUTH_NOT_CONFIGURED", "The import contains no Alza authentication cookies.");
   return { cookies, origins };
 }

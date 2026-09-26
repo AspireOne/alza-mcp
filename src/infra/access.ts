@@ -1,4 +1,4 @@
-import type { AuthMode, Provider } from "../domain/contracts.js";
+import type { Provider } from "../domain/contracts.js";
 import { fail, failureOf, FailureError } from "./failure.js";
 import type { Config } from "./config.js";
 import type { Access, Reader } from "./reader.js";
@@ -15,8 +15,16 @@ export class AccessCoordinator implements Access {
   private readonly cooldowns = new Map<string, number>();
   private lastFailure: ReturnType<typeof failureOf> | null = null;
   private closed = false;
+  private readonly active = new Set<Promise<unknown>>();
+  private closing?: Promise<void>;
   constructor(readonly config: Config, readonly store: StateStore) { this.browser = new SessionBrowser(config, store); }
-  async run<T>(op: Operation, work: (reader: Reader) => Promise<T>, expectedContext?: string): Promise<T> {
+  run<T>(op: Operation, work: (reader: Reader) => Promise<T>, expectedContext?: string): Promise<T> {
+    const pending = this.execute(op, work, expectedContext);
+    this.active.add(pending);
+    void pending.finally(() => this.active.delete(pending)).catch(() => {});
+    return pending;
+  }
+  private async execute<T>(op: Operation, work: (reader: Reader) => Promise<T>, expectedContext?: string): Promise<T> {
     if (this.closed) fail("BROWSER_UNAVAILABLE", "The server is shutting down.");
     await this.store.open();
     if (op.auth === "required" && !this.store.account) fail("AUTH_NOT_CONFIGURED", "Import an Alza account session before using auth=required.");
@@ -86,5 +94,9 @@ export class AccessCoordinator implements Access {
     });
   }
   status(): unknown { return { browser: this.browser.status(), queue_size: this.queue.size, account_configured: !!this.store.account, last_failure: this.lastFailure, cooldown_until: Math.max(0, ...this.cooldowns.values()), recovery: { flaresolverr: this.config.flareUrl ? "configured" : "disabled", byparr: this.config.byparrUrl ? "configured" : "disabled" } }; }
-  async close(): Promise<void> { this.closed = true; await this.browser.close(); await this.store.close(); }
+  close(): Promise<void> {
+    this.closed = true;
+    this.closing ??= (async () => { await Promise.allSettled([...this.active]); await this.browser.close(); await this.store.close(); })();
+    return this.closing;
+  }
 }

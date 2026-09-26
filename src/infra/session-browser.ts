@@ -1,6 +1,4 @@
 import { chromium, type BrowserContext, type Page } from "patchright";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { accountFromHtml, classifyResponse, decodeJson } from "../adapters/html.js";
 import type { Config } from "./config.js";
 import { fail, FailureError } from "./failure.js";
@@ -14,14 +12,14 @@ export class SessionBrowser {
   private context?: BrowserContext;
   private kind?: "anonymous" | "account";
   constructor(private readonly config: Config, readonly store: StateStore) {}
-  async start(kind: "anonymous" | "account"): Promise<BrowserContext> {
+  async start(kind: "anonymous" | "account", timeout = 15_000): Promise<BrowserContext> {
     if (this.context && this.kind === kind) return this.context;
     await this.close();
     log.info("browser.start", { profile: kind });
     try {
       this.context = await chromium.launchPersistentContext(this.store.profile(kind), {
         headless: this.config.headless, executablePath: this.config.executablePath, viewport: null,
-        locale: "cs-CZ", timezoneId: "Europe/Prague", timeout: 15_000,
+        locale: "cs-CZ", timezoneId: "Europe/Prague", timeout,
       });
       this.kind = kind;
       this.context.on("close", () => { this.context = undefined; this.kind = undefined; });
@@ -31,7 +29,9 @@ export class SessionBrowser {
     }
   }
   async reader(op: Operation, kind: "anonymous" | "account", deadline: number): Promise<{ reader: Reader; dispose: () => Promise<void> }> {
-    const context = await this.start(kind);
+    op.check();
+    if (Date.now() >= deadline) fail("TIMEOUT", "Primary browser budget was exhausted before startup.", { retryable: true });
+    const context = await this.start(kind, Math.min(15_000, deadline - Date.now(), op.remaining()));
     op.check();
     const page = await context.newPage();
     const close = () => { void page.close().catch(() => {}); };
@@ -41,6 +41,16 @@ export class SessionBrowser {
       op.check();
       if (Date.now() >= deadline) fail("TIMEOUT", "Primary browser access exceeded its budget.", { retryable: true });
       return Math.min(deadline - Date.now(), op.remaining());
+    };
+    const network = async <T>(work: () => Promise<T>): Promise<T> => {
+      try { return await work(); }
+      catch (error) {
+        op.check(); remaining();
+        if (error instanceof FailureError) throw error;
+        op.meta.warnings.push({ code: "NETWORK_RETRY", message: "Retrying one transient browser request within the existing deadline." });
+        try { return await work(); }
+        catch (cause) { op.check(); remaining(); throw new FailureError({ code: "NETWORK_ERROR", message: "An Alza browser request failed twice.", retryable: true }, { cause }); }
+      }
     };
     const expected = kind === "account" ? this.store.account : undefined;
     const verify = (html: string) => {
@@ -54,9 +64,7 @@ export class SessionBrowser {
       provider: "browser", canPost: true, context: expected ? `account:${expected.generation}` : "anonymous",
       page: async (url, options) => {
         alzaUrl(url);
-        let response;
-        try { response = await page.goto(url, { waitUntil: "load", timeout: remaining() }); }
-        catch (error) { op.check(); remaining(); throw new FailureError({ code: "NETWORK_ERROR", message: "The browser could not load Alza.", retryable: true }, { cause: error }); }
+        const response = await network(() => page.goto(url, { waitUntil: "load", timeout: remaining() }));
         const headers = response ? await response.allHeaders() : {};
         let html = await page.content();
         classifyResponse(response?.status() ?? null, headers, html);
@@ -73,14 +81,14 @@ export class SessionBrowser {
         const target = alzaUrl(url);
         if (body !== undefined && new URL(target).pathname !== FILTER_PATH) fail("INVALID_INPUT", "Only the read-only catalog filter POST is supported.");
         const timeout = remaining();
-        const result = await page.evaluate(async ({ target, body, timeout }) => {
+        const result = await network(() => page.evaluate(async ({ target, body, timeout }) => {
           const response = await fetch(target, {
-            method: body === undefined ? "GET" : "POST", credentials: "include",
+            method: body === undefined ? "GET" : "POST", credentials: "include", redirect: "error",
             headers: body === undefined ? undefined : { "content-type": "application/json; charset=utf-8" },
             body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(timeout),
           });
           return { status: response.status, headers: Object.fromEntries(response.headers), text: await response.text(), url: response.url };
-        }, { target, body, timeout }).catch(error => { op.check(); remaining(); throw new FailureError({ code: "NETWORK_ERROR", message: "An Alza data request failed.", retryable: true }, { cause: error }); });
+        }, { target, body, timeout: Math.min(timeout, remaining()) }));
         alzaUrl(result.url);
         classifyResponse(result.status, result.headers, result.text);
         op.meta.sources.push(target);
@@ -111,6 +119,22 @@ async function hydrateDetail(page: Page, remaining: () => number): Promise<void>
     const description = document.querySelector("#descAnnotation");
     return (!params || !!params.querySelector(".param, table, [class*=parameter]")) && (!description || !!description.textContent?.trim());
   }, undefined, { timeout: Math.min(remaining(), 5000) }).catch(() => {});
+  const selectors = page.locator('[data-testid="detailVariantSelectComponentOpenOptionsButton"]');
+  const groups: unknown[] = [];
+  for (let i = 0; i < await selectors.count(); i++) {
+    const selector = selectors.nth(i);
+    try {
+      const label = await selector.innerText();
+      await selector.click({ timeout: Math.min(remaining(), 2000) });
+      await page.locator('[role="listbox"] [role="option"]').first().waitFor({ timeout: Math.min(remaining(), 2000) });
+      const options = await page.locator('[role="listbox"] [role="option"]').evaluateAll(nodes => nodes.map(n => ({ label: n.textContent?.trim(), selected: n.getAttribute('aria-selected') === 'true' })));
+      groups.push({ label, options });
+      await page.keyboard.press('Escape');
+    } catch { break; }
+  }
+  if (groups.length && groups.length === await selectors.count()) await page.evaluate(groups => {
+    const node = document.createElement('script'); node.type = 'application/json'; node.id = 'alza-mcp-variant-options'; node.textContent = JSON.stringify(groups); document.body.append(node);
+  }, groups);
   // Missing sections are reported by the parser; a slow optional section is not a fake empty result.
 }
 

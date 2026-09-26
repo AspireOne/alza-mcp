@@ -1,8 +1,8 @@
 {
   "name": "alza-mcp",
   "mcpName": "io.github.lukabudik/alza-mcp",
-  "version": "0.1.2",
-  "description": "Unofficial Model Context Protocol server for Alza.cz — gives AI agents a read-only interface to browse products, reviews, and pickup points.",
+  "version": "0.2.0",
+  "description": "Unofficial read-only Alza.cz product research MCP server with persistent browser sessions and bounded challenge recovery.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -10,8 +10,8 @@
   },
   "files": [
     "dist",
-    "scripts/postinstall.cjs",
     "README.md",
+    "ARCHITECTURE.md",
     "LICENSE"
   ],
   "scripts": {
@@ -23,7 +23,6 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "validate:api": "tsx scripts/validate-api.ts",
-    "postinstall": "node scripts/postinstall.cjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -49,22 +48,21 @@
     "url": "https://github.com/lukabudik/alza-mcp/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
     "cheerio": "^1.0.0",
+    "json5": "2.2.3",
     "patchright": "1.63.0",
-    "playwright": "^1.59.1",
     "proper-lockfile": "4.1.2",
-    "undici": "^7.0.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^24.0.0",
     "@types/proper-lockfile": "^4.1.4",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
+    "vitest": "^5.0.2"
   }
 }
