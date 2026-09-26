@@ -76,19 +76,22 @@ export class SessionBrowser {
     const reader: Reader = {
       provider: "browser", canPost: true, context: expected ? `account:${expected.generation}` : "anonymous",
       page: async (url, options) => {
-        alzaUrl(url);
-        const response = await network(() => page.goto(url, { waitUntil: "load", timeout: remaining() }));
-        const headers = response ? await response.allHeaders() : {};
-        let html = await page.content();
-        classifyResponse(response?.status() ?? null, headers, html);
-        alzaUrl(page.url());
-        verify(html);
-        if (options?.detail) await hydrateDetail(page, remaining);
-        html = await page.content();
-        verify(html);
-        const document: Document = { url: alzaUrl(page.url()), html, status: response?.status() ?? null, headers };
-        op.meta.sources.push(document.url);
-        return document;
+        try {
+          alzaUrl(url);
+          const response = await network(() => page.goto(url, { waitUntil: "load", timeout: remaining() }));
+          const headers = response ? await response.allHeaders() : {};
+          let html = await page.content();
+          classifyResponse(response?.status() ?? null, headers, html);
+          alzaUrl(page.url());
+          verify(html);
+          if (options?.detail) await hydrateDetail(page, remaining);
+          html = await page.content();
+          verify(html);
+          const document: Document = { url: alzaUrl(page.url()), html, status: response?.status() ?? null, headers };
+          op.meta.sources.push(document.url);
+          remaining();
+          return document;
+        } catch (error) { remaining(); throw error; }
       },
       json: async (url, body) => {
         const target = alzaUrl(url);

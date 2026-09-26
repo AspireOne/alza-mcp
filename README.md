@@ -34,7 +34,7 @@ On a Raspberry Pi, Docker must report working memory-limit support before relyin
 
 For a 4 GB Pi sharing the host with other services, start with `ALZA_MEMORY_LIMIT=1g`, `FLARESOLVERR_MEMORY_LIMIT=640m`, and `BYPARR_MEMORY_LIMIT=640m`. These are ceilings, not reservations. Acceptance requires successful live browsing and forced recovery without out-of-memory kills or disruption to other services; insufficient capacity is a deployment failure. See [the recovery lifetime constraints](ARCHITECTURE.md#access-and-recovery).
 
-Use a Git-based Docker Compose application in Coolify and deploy a verified commit. Set `ALZA_IMAGE=<coolify-application-uuid>:<git-commit>` alongside that revision: Coolify's cleanup recognizes this repository name and retains application images for stopped services and rollback. With Cloudflare Tunnel terminating public HTTPS and forwarding to the local HTTP proxy, configure an HTTP origin route in Coolify and set `ALZA_PUBLIC_URL` to the external HTTPS origin. Avoid an origin HTTPS redirect loop. Store the bearer token in Coolify's runtime environment and retain the same application volume across deployments.
+Use a Git-based Docker Compose application in Coolify and deploy a verified commit. Set `ALZA_IMAGE=<coolify-application-uuid>:<git-commit>` alongside that revision, available at both build time and runtime so Compose builds and starts the same image. Coolify's cleanup recognizes this repository name and retains application images for stopped services and rollback. With Cloudflare Tunnel terminating public HTTPS and forwarding to the local HTTP proxy, configure an HTTP origin route in Coolify and set `ALZA_PUBLIC_URL` to the external HTTPS origin. Avoid an origin HTTPS redirect loop. Store the bearer token in Coolify's runtime environment and retain the same application volume across deployments.
 
 ## Research tools
 
@@ -112,7 +112,7 @@ You can find your numeric ID in the signed-in site's `_pageData.userId` page boo
 
 Protect the data volume and export like a password. Delete the transfer file after a successful import. The application does not expose cookies, profile downloads or session-import tools over MCP.
 
-For Coolify session renewal, stop the application through Coolify and mount its existing `/data` volume into a one-off import container using the deployed image. Obtain the actual volume name from the application's container mounts; running Compose under a different project name can create an unrelated empty volume. Start the application through Coolify after import and verify an `auth=required` product request.
+For Coolify session renewal, stop the application through Coolify and mount its existing `/data` volume into a one-off import container using the deployed image. Obtain the actual volume name from the application's container mounts; running Compose under a different project name can create an unrelated empty volume. Use Coolify’s **Deploy** action after import and verify an `auth=required` product request. Compose applications use Deploy to start the complete stack; do not use the generic application-restart API.
 
 For a consistent backup, stop the application, archive the complete `/data` volume with file permissions preserved, then restart it. Keep the archive private and copy it off the Pi. Record the deployed Git commit with the backup. Roll back application code by deploying the prior verified commit; restore the matching volume backup only when needed. A restarted server invalidates existing traversal cursors.
 
