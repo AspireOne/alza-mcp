@@ -19,6 +19,16 @@ describe('MCP wire contracts', () => {
     const server = createServer(research()), client = new Client({ name: 'test', version: '1' });
     const [a, b] = InMemoryTransport.createLinkedPair(); await server.connect(a); await client.connect(b); cleanups.push(() => server.close(), () => client.close());
     const tools = await client.listTools(); expect(tools.tools.map(t => t.name)).toEqual(['search_products', 'get_product', 'get_product_reviews', 'list_categories', 'get_category', 'get_session_status']); expect(tools.tools.every(t => t.annotations?.readOnlyHint)).toBe(true);
+    expect(client.getInstructions()).toContain('auth="preferred"');
+    for (const tool of tools.tools.filter(t => t.name !== 'get_session_status')) {
+      expect(tool.description).toContain('auth="preferred"');
+      expect((tool.inputSchema.properties?.auth as { description?: string }).description).toContain('auth="preferred"');
+    }
+    for (const tool of tools.tools.filter(t => t.name === 'search_products' || t.name === 'get_product')) {
+      expect(tool.description).toContain('actual purchase price');
+      expect(tool.description).toContain('company benefits can stack');
+      expect(tool.description).toContain('not the checkout price');
+    }
     const result = await client.callTool({ name: 'search_products', arguments: { query: 'disk' } });
     expect(result.isError).toBe(true); expect(result.structuredContent).toMatchObject({ status: 'error', error: { code: 'CHALLENGE_UNRESOLVED' } });
     expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text)).toEqual(result.structuredContent);

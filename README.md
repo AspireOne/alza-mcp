@@ -62,7 +62,7 @@ For example, start with:
   "category_id": 18845887,
   "filters": { "max_price": 4000, "in_stock": true },
   "sort": "price_asc",
-  "auth": "anonymous"
+  "auth": "preferred"
 }
 ```
 
@@ -82,11 +82,15 @@ Every tool result includes matching JSON in `structuredContent` and `content[0].
 
 Metadata identifies the provider, attempted recovery steps, verified authentication state, source URLs, cache age and warnings. `meta.challenge.status` is `not_detected`, `detected` (recovery failed), or `solved`; a solved challenge includes the recovery provider and milliseconds from detection to success. Detection covers Alza human-verification pages, including CAPTCHAs; a generic timeout followed by solver success is not evidence that a CAPTCHA occurred. `meta.auth.session_issue` is `null` unless a configured account failed verification during that request. `AUTH_REQUIRED` means the session is no longer signed in; `AUTH_ACCOUNT_MISMATCH` means it is signed into another account. This field remains set when `auth=preferred` falls back to public prices. `get_session_status` does not contact Alza, so a data call is needed to check the current login. For a response combining fresh and cached sections, cache age identifies the oldest cached contribution. Missing values are not zero. `exhausted: false` with no cursor means traversal failed; it does not mean all results were returned. A traversal is not a snapshot: additions, removals or reordered results can require a restart.
 
-Offers distinguish public, effective, conditional and reference prices. Decimal amounts preserve upstream precision; `display` preserves Alza's displayed rounding. VAT-inclusive and VAT-exclusive offers remain separate. A conditional coupon or AlzaPlus promotion is not automatically the price you can pay. Rating counts, written-review counts and translated-review counts can differ; reviews preserve the displayed variant and verified-purchase label.
+Offers distinguish public, effective, conditional and reference prices. Decimal amounts preserve upstream precision; `display` preserves Alza's displayed rounding. VAT-inclusive and VAT-exclusive offers remain separate. Advertised promotions add an optional `promotion` field to the existing offer: `{ "type": "coupon", "code": "ALZADNY15" }`, `{ "type": "cashback" }`, or `{ "type": "other" }`. A missing coupon code is `null`. Alza's labels and terms, including any advertised eligibility rules or validity dates, remain in `conditions`; absent restrictions are not inferred.
+
+Use a coupon offer's `amount` as the actual purchase price for comparisons when its code is available and its conditions are met, and tell the user which code to apply. It remains `conditional` because checkout requires the code. Coupon and company benefits can stack; the signed-in advertised coupon total can already include both. Do not choose only one discount, apply either again, or invent a combined total. Cashback is a later reimbursement, not a checkout price. Search returns promotions present in its cards; check product-detail `offers` for promotions omitted from search. Alza's own price filters and sorting may not reflect coupon totals. Missing or malformed promotional prices cause an explicit parsing failure rather than a silently omitted offer.
+
+Rating counts, written-review counts and translated-review counts can differ; reviews preserve the displayed variant and verified-purchase label.
 
 ## Optional account session
 
-`auth` is accepted on data tools:
+Use `auth: "preferred"` for normal data requests so configured account and company benefits are retained. Reserve `anonymous` for an explicit public-price comparison or an anonymous-session diagnostic. Use `required` when account verification must succeed. Follow pagination cursors without changing authentication. The modes behave as follows:
 
 | Mode | Behavior |
 |---|---|

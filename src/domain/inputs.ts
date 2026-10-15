@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PRODUCT_SECTIONS, SORTS } from "./contracts.js";
-export const authSchema = z.enum(["preferred", "required", "anonymous"]).describe("required verifies the configured account on every call; preferred may warn and fall back to public prices; anonymous uses a separate profile.");
+export const AUTH_GUIDANCE = 'Use auth="preferred" for normal requests so account and company benefits are retained; it can fall back to public prices with a warning. Use "required" when verified account access must succeed. Use "anonymous" only when the user requests public pricing or an anonymous session is needed for diagnosis. Follow cursors without changing authentication.';
+export const authSchema = z.enum(["preferred", "required", "anonymous"]).describe(AUTH_GUIDANCE);
 export const filtersSchema = z.object({
   min_price: z.number().finite().nonnegative().optional(), max_price: z.number().finite().nonnegative().optional(),
   in_stock: z.boolean().optional(), condition: z.array(z.enum(["new", "opened", "used"])).min(1).optional(),
