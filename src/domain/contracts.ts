@@ -43,6 +43,7 @@ export interface Offer {
   vat: "included" | "excluded" | "unknown";
   eligibility: "eligible" | "conditional" | "unknown";
   conditions: string[];
+  promotion?: { type: "coupon"; code: string | null } | { type: "cashback" | "other" };
 }
 export interface Listing {
   id: number;

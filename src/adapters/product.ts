@@ -4,7 +4,7 @@ import { PRODUCT_SECTIONS } from "../domain/contracts.js";
 import { fail, failureOf } from "../infra/failure.js";
 import { productId, alzaUrl } from "../infra/urls.js";
 import { jsonLd, object, pageData, string, text } from "./html.js";
-import { money, offer, membershipReference } from "./listings.js";
+import { money, offer, membershipReference, promotionalOffers, couponFromTitle } from "./listings.js";
 
 const available = (data: unknown): Section<unknown> => ({ state: "available", data });
 const absent: Section<unknown> = { state: "not_provided" };
@@ -75,13 +75,15 @@ export function parseProduct(html: string, url: string, id: number, signedIn: bo
     offers: () => {
       const currency = string(baseOffer.priceCurrency) || "CZK", prices: Offer[] = [];
       const main = $('.js-price-detail__main-price-box-wrapper').first();
+      const priceTitle = text(main.find('.ads-pb__header, [data-slot="pb-title"]').first().text());
+      const appliedConditions = signedIn && main.find('.ads-pb--benefit, .ads-pb--alza-plus').length && priceTitle ? [priceTitle] : [];
       const display = text(main.find('.js-price-box__primary-price__value, [data-slot="pb-price"]').first().text()) || null;
       const amount = money(baseOffer.price) ?? (display ? money(display) : null);
       const displayedAmount = money(display);
       if (amount && displayedAmount && Math.abs(Number(amount) - Number(displayedAmount)) > 1) fail("PRICE_CONFLICT", "The displayed primary price disagrees with the structured price beyond display rounding.");
       const specifications = Array.isArray(baseOffer.priceSpecification) ? baseOffer.priceSpecification : [baseOffer.priceSpecification];
       const vat = specifications.map(object).find(s => money(s.price) === amount && typeof s.valueAddedTaxIncluded === 'boolean')?.valueAddedTaxIncluded;
-      if (amount) prices.push({ ...offer(amount, display, signedIn ? "effective" : "public"), currency, vat: vat === true ? "included" : vat === false ? "excluded" : "unknown" });
+      if (amount) prices.push({ ...offer(amount, display, signedIn ? "effective" : "public", appliedConditions), currency, vat: vat === true ? "included" : vat === false ? "excluded" : "unknown" });
       else if (main.length || Object.keys(baseOffer).length) fail("SCHEMA_CHANGED", "The effective product price could not be parsed.");
       const withoutVat = text(main.find('.js-secondary-price').text());
       if (withoutVat) { const parsed = money(withoutVat.replace(/bez DPH/i, "")); if (!parsed) fail("PARSE_ERROR", "The price without VAT could not be parsed."); prices.push({ ...offer(parsed, withoutVat, signedIn ? "effective" : "public"), currency, vat: "excluded" }); }
@@ -94,8 +96,10 @@ export function parseProduct(html: string, url: string, id: number, signedIn: bo
         if (n.find('[class*="ads-pb--instalments"], [data-gtm-p2="Leas"]').length) continue;
         const display = text(n.find('[data-slot="pb-price"], .ads-pb__price-value').first().text()), amount = money(display);
         if (!amount && text(n.text())) fail("PARSE_ERROR", "An advertised conditional offer could not be parsed.");
-        if (amount) prices.push({ ...offer(amount, display, "conditional"), currency, conditions: [text(n.text())], eligibility: "conditional", vat: "included" });
+        const promotion = couponFromTitle(text(n.find('[data-slot="pb-title"], .ads-pb__header').first().text()));
+        if (amount) prices.push({ ...offer(amount, display, "conditional"), currency, conditions: [text(n.text())], eligibility: "conditional", vat: "included", ...(promotion ? { promotion } : {}) });
       }
+      prices.push(...promotionalOffers($, $('.promo-action-prices'), currency, appliedConditions));
       for (const raw of specifications) {
         const spec = object(raw), referenceAmount = money(spec.price);
         if (referenceAmount && /\/(ListPrice|StrikethroughPrice|MSRP)$/.test(String(spec.priceType))) prices.push({ ...offer(referenceAmount, null, 'reference'), currency: string(spec.priceCurrency) || currency, vat: spec.valueAddedTaxIncluded === true ? 'included' : spec.valueAddedTaxIncluded === false ? 'excluded' : 'unknown', eligibility: 'unknown' });
