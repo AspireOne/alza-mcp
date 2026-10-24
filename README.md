@@ -1,5 +1,7 @@
 # alza-mcp
 
+Maintained by [Matěj Pešl (AspireOne)](https://github.com/AspireOne/alza-mcp) for personal deployment. This fork is not published to npm or the MCP Registry.
+
 An unofficial, read-only Alza.cz research server for MCP clients. Search and traverse product listings, inspect product detail, and read full reviews. It runs on a home Linux server with a persistent Chromium profile. An imported Alza login is optional.
 
 The server attempts automatic challenge recovery, but cannot guarantee CAPTCHA-free access. It reports unsuccessful recovery, expired login, changed pagination, and incomplete parsing explicitly. It provides no checkout, order, pickup-point, or store-inventory tools.

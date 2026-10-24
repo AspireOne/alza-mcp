@@ -16,9 +16,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [0.1.2] — 2026-05-11
 
-### Added
-- 🎉 **Published to npm** as [`alza-mcp`](https://www.npmjs.com/package/alza-mcp). The one-line install (`claude mcp add alza --scope user -- npx -y alza-mcp`) now actually works.
-
 ### Changed
 - Honest tool descriptions for known v0.1 partial-failures. `get_product_reviews` now states it returns aggregate ratings only (individual review bodies are v0.2). `get_product` notes that the `params` spec table is often empty in v0.1.
 

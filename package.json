@@ -1,6 +1,6 @@
 {
   "name": "alza-mcp",
-  "mcpName": "io.github.lukabudik/alza-mcp",
+  "private": true,
   "version": "0.2.0",
   "description": "Unofficial read-only Alza.cz product research MCP server with persistent browser sessions and bounded challenge recovery.",
   "type": "module",
@@ -8,12 +8,6 @@
   "bin": {
     "alza-mcp": "dist/index.js"
   },
-  "files": [
-    "dist",
-    "README.md",
-    "ARCHITECTURE.md",
-    "LICENSE"
-  ],
   "scripts": {
     "prebuild": "rm -rf dist",
     "build": "tsc && chmod +x dist/index.js",
@@ -23,7 +17,6 @@
     "test:watch": "vitest",
     "typecheck": "tsc --project tsconfig.check.json",
     "validate:api": "tsx scripts/validate-api.ts",
-    "prepublishOnly": "npm run build",
     "validate:soak": "tsx scripts/validate-api.ts --soak"
   },
   "keywords": [
@@ -38,15 +31,15 @@
     "ai",
     "agent"
   ],
-  "author": "alza-mcp contributors",
+  "author": "Matěj Pešl (AspireOne)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lukabudik/alza-mcp.git"
+    "url": "git+https://github.com/AspireOne/alza-mcp.git"
   },
-  "homepage": "https://github.com/lukabudik/alza-mcp#readme",
+  "homepage": "https://github.com/AspireOne/alza-mcp#readme",
   "bugs": {
-    "url": "https://github.com/lukabudik/alza-mcp/issues"
+    "url": "https://github.com/AspireOne/alza-mcp/issues"
   },
   "engines": {
     "node": ">=24"
