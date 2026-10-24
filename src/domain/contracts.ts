@@ -33,8 +33,20 @@ export type Section<T> =
   | { state: "available"; data: T }
   | { state: "not_provided" }
   | { state: "failed"; error: Failure };
-export const PRODUCT_SECTIONS = ["description", "specifications", "variants", "media", "documents", "offers", "attributes", "ratings"] as const;
+export const PRODUCT_SECTIONS = ["description", "specifications", "variants", "media", "documents", "offers", "attributes", "ratings", "reliability"] as const;
 export type ProductSection = typeof PRODUCT_SECTIONS[number];
+export interface Complaint {
+  /** Alza's observed claim rate as a fraction: 0.02 means 2%. */
+  rate: number | null;
+  type: number;
+  description: string;
+  tooltip: string;
+}
+export interface Reliability {
+  complaint: Complaint;
+  purchaseCountFormatted: string | null;
+  showPurchaseCount: boolean;
+}
 export interface Offer {
   kind: "effective" | "public" | "conditional" | "reference";
   amount: string;

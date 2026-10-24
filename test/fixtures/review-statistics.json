@@ -1,0 +1,406 @@
+[
+  {
+    "id": 7400136,
+    "url": "https://www.alza.cz/hobby/keysmart-organizer-klicu-cerny-d7400136.htm",
+    "name": "KeySmart Organizér klíčů - černý",
+    "stats": {
+      "self": {
+        "href": "https://webapi.alza.cz/api/catalog/v2/commodities/7400136/reviewStats?country=CZ"
+      },
+      "ratingAverage": 3.7,
+      "ratingCount": 10,
+      "reviewCount": 4,
+      "reviewCountTooltip": "Počet textových recenzí včetně přeložených recenzí ze zahraničí.",
+      "purchaseCountFormatted": "200+",
+      "showPurchaseCount": true,
+      "recommendationRate": 0.6,
+      "recommendationRateTooltip": "Procento recenzí s nadprůměrným hodnocením.",
+      "ratings": [
+        {
+          "value": 1,
+          "count": 1
+        },
+        {
+          "value": 2,
+          "count": 1
+        },
+        {
+          "value": 3,
+          "count": 2
+        },
+        {
+          "value": 4,
+          "count": 2
+        },
+        {
+          "value": 5,
+          "count": 4
+        }
+      ],
+      "complaint": {
+        "rate": 0,
+        "type": 1,
+        "description": "nízká reklamovanost",
+        "tooltip": "Tento produkt je ve své kategorii nadprůměrně spolehlivý."
+      }
+    }
+  },
+  {
+    "id": 5879402,
+    "url": "https://www.alza.cz/bosch-aquawashclean?dq=5879402",
+    "name": "BOSCH BWD421POW AquaWash&Clean",
+    "stats": {
+      "self": {
+        "href": "https://webapi.alza.cz/api/catalog/v2/commodities/5879402/reviewStats?country=CZ"
+      },
+      "ratingAverage": 4.4,
+      "ratingCount": 205,
+      "reviewCount": 65,
+      "reviewCountTooltip": "Počet textových recenzí včetně přeložených recenzí ze zahraničí.",
+      "purchaseCountFormatted": "1 000+",
+      "showPurchaseCount": true,
+      "recommendationRate": 0.83,
+      "recommendationRateTooltip": "Procento recenzí s nadprůměrným hodnocením.",
+      "ratings": [
+        {
+          "value": 1,
+          "count": 14
+        },
+        {
+          "value": 2,
+          "count": 10
+        },
+        {
+          "value": 3,
+          "count": 10
+        },
+        {
+          "value": 4,
+          "count": 32
+        },
+        {
+          "value": 5,
+          "count": 139
+        }
+      ],
+      "complaint": {
+        "rate": 0.0565,
+        "type": 3,
+        "description": "vysoká reklamovanost",
+        "tooltip": "Tento produkt je poměrně nespolehlivý v rámci své kategorie."
+      }
+    }
+  },
+  {
+    "id": 13188678,
+    "url": "https://www.alza.cz/beko-bm3t372e0w-sleva-d13188678.htm",
+    "name": "BEKO BM3T372E0W",
+    "stats": {
+      "self": {
+        "href": "https://webapi.alza.cz/api/catalog/v2/commodities/13188678/reviewStats?country=CZ"
+      },
+      "ratingAverage": 4.5,
+      "ratingCount": 33,
+      "reviewCount": 17,
+      "reviewCountTooltip": "Počet textových recenzí včetně přeložených recenzí ze zahraničí.",
+      "purchaseCountFormatted": "1 000+",
+      "showPurchaseCount": true,
+      "recommendationRate": 0.88,
+      "recommendationRateTooltip": "Procento recenzí s nadprůměrným hodnocením.",
+      "ratings": [
+        {
+          "value": 1,
+          "count": 4
+        },
+        {
+          "value": 2,
+          "count": 0
+        },
+        {
+          "value": 3,
+          "count": 0
+        },
+        {
+          "value": 4,
+          "count": 2
+        },
+        {
+          "value": 5,
+          "count": 27
+        }
+      ],
+      "complaint": {
+        "rate": 0.0114,
+        "type": 1,
+        "description": "nízká reklamovanost",
+        "tooltip": "Tento produkt je ve své kategorii nadprůměrně spolehlivý."
+      }
+    }
+  },
+  {
+    "id": 10837262,
+    "url": "https://www.alza.cz/realme-12-pro-5g",
+    "name": "Realme 12 Pro 5G",
+    "stats": {
+      "self": {
+        "href": "https://webapi.alza.cz/api/catalog/v2/commodities/10837262/reviewStats?country=CZ"
+      },
+      "ratingAverage": 4.9,
+      "ratingCount": 16,
+      "reviewCount": 7,
+      "reviewCountTooltip": "Počet textových recenzí včetně přeložených recenzí ze zahraničí.",
+      "purchaseCountFormatted": "10+",
+      "showPurchaseCount": true,
+      "recommendationRate": 1,
+      "recommendationRateTooltip": "Procento recenzí s nadprůměrným hodnocením.",
+      "ratings": [
+        {
+          "value": 1,
+          "count": 0
+        },
+        {
+          "value": 2,
+          "count": 0
+        },
+        {
+          "value": 3,
+          "count": 0
+        },
+        {
+          "value": 4,
+          "count": 1
+        },
+        {
+          "value": 5,
+          "count": 15
+        }
+      ],
+      "complaint": {
+        "rate": null,
+        "type": 0,
+        "description": "neznámá reklamovanost",
+        "tooltip": "Míra reklamovanosti se vypočítá, až produkt zakoupí alespoň 30 zákazníků."
+      }
+    }
+  },
+  {
+    "id": 7980597,
+    "url": "https://www.alza.cz/sennheiser-momentum-4-wireless-aebt-denim-d7980597.htm",
+    "name": "Sennheiser MOMENTUM 4 Wireless AEBT denim",
+    "stats": {
+      "self": {
+        "href": "https://webapi.alza.cz/api/catalog/v2/commodities/7980597/reviewStats?country=CZ"
+      },
+      "ratingAverage": 4.5,
+      "ratingCount": 185,
+      "reviewCount": 88,
+      "reviewCountTooltip": "Počet textových recenzí včetně přeložených recenzí ze zahraničí.",
+      "purchaseCountFormatted": "500+",
+      "showPurchaseCount": true,
+      "recommendationRate": 0.84,
+      "recommendationRateTooltip": "Procento recenzí s nadprůměrným hodnocením.",
+      "ratings": [
+        {
+          "value": 1,
+          "count": 5
+        },
+        {
+          "value": 2,
+          "count": 9
+        },
+        {
+          "value": 3,
+          "count": 15
+        },
+        {
+          "value": 4,
+          "count": 27
+        },
+        {
+          "value": 5,
+          "count": 129
+        }
+      ],
+      "complaint": {
+        "rate": 0.0628,
+        "type": 3,
+        "description": "vysoká reklamovanost",
+        "tooltip": "Tento produkt je poměrně nespolehlivý v rámci své kategorie."
+      }
+    }
+  },
+  {
+    "id": 8598564,
+    "url": "https://www.alza.cz/sennheiser-momentum-4-wireless-aebt-denim-levne-d8598564.htm",
+    "name": "Sennheiser MOMENTUM 4 Wireless AEBT denim",
+    "stats": {
+      "self": {
+        "href": "https://webapi.alza.cz/api/catalog/v2/commodities/8598564/reviewStats?country=CZ"
+      },
+      "ratingAverage": 4.5,
+      "ratingCount": 185,
+      "reviewCount": 88,
+      "reviewCountTooltip": "Počet textových recenzí včetně přeložených recenzí ze zahraničí.",
+      "purchaseCountFormatted": "500+",
+      "showPurchaseCount": true,
+      "recommendationRate": 0.84,
+      "recommendationRateTooltip": "Procento recenzí s nadprůměrným hodnocením.",
+      "ratings": [
+        {
+          "value": 1,
+          "count": 5
+        },
+        {
+          "value": 2,
+          "count": 9
+        },
+        {
+          "value": 3,
+          "count": 15
+        },
+        {
+          "value": 4,
+          "count": 27
+        },
+        {
+          "value": 5,
+          "count": 129
+        }
+      ],
+      "complaint": {
+        "rate": 0.0628,
+        "type": 3,
+        "description": "vysoká reklamovanost",
+        "tooltip": "Tento produkt je poměrně nespolehlivý v rámci své kategorie."
+      }
+    }
+  },
+  {
+    "id": 12662568,
+    "url": "https://www.alza.cz/gymbeam-horcik-chelat-bisglycinat-180-kapsli-d12662568.htm",
+    "name": "GymBeam Hořčík chelát (bisglycinát), 180 kapslí",
+    "stats": {
+      "self": {
+        "href": "https://webapi.alza.cz/api/catalog/v2/commodities/12662568/reviewStats?country=CZ"
+      },
+      "ratingAverage": 4.8,
+      "ratingCount": 451,
+      "reviewCount": 75,
+      "reviewCountTooltip": "Počet textových recenzí včetně přeložených recenzí ze zahraničí.",
+      "purchaseCountFormatted": "20 000+",
+      "showPurchaseCount": true,
+      "recommendationRate": 0.95,
+      "recommendationRateTooltip": "Procento recenzí s nadprůměrným hodnocením.",
+      "ratings": [
+        {
+          "value": 1,
+          "count": 3
+        },
+        {
+          "value": 2,
+          "count": 5
+        },
+        {
+          "value": 3,
+          "count": 15
+        },
+        {
+          "value": 4,
+          "count": 45
+        },
+        {
+          "value": 5,
+          "count": 383
+        }
+      ],
+      "complaint": null
+    }
+  },
+  {
+    "id": 13458454,
+    "url": "https://www.alza.cz/siemens-tp551e19-eq500-iaroma-d13458454.htm",
+    "name": "SIEMENS TP551E19 EQ500 iAroma",
+    "stats": {
+      "self": {
+        "href": "https://webapi.alza.cz/api/catalog/v2/commodities/13458454/reviewStats?country=CZ"
+      },
+      "ratingAverage": 4,
+      "ratingCount": 2,
+      "reviewCount": 2,
+      "reviewCountTooltip": "Počet textových recenzí včetně přeložených recenzí ze zahraničí.",
+      "purchaseCountFormatted": "20+",
+      "showPurchaseCount": true,
+      "recommendationRate": 1,
+      "recommendationRateTooltip": "Procento recenzí s nadprůměrným hodnocením.",
+      "ratings": [
+        {
+          "value": 1,
+          "count": 0
+        },
+        {
+          "value": 2,
+          "count": 0
+        },
+        {
+          "value": 3,
+          "count": 0
+        },
+        {
+          "value": 4,
+          "count": 2
+        },
+        {
+          "value": 5,
+          "count": 0
+        }
+      ],
+      "complaint": {
+        "rate": null,
+        "type": 0,
+        "description": "neznámá reklamovanost",
+        "tooltip": "Míra reklamovanosti se vypočítá, až produkt zakoupí alespoň 30 zákazníků."
+      }
+    }
+  },
+  {
+    "id": 5879393,
+    "url": "https://www.alza.cz/xiaomi-redmi-9?dq=5879393",
+    "name": "Xiaomi Redmi 9 64GB gradientní fialová",
+    "stats": {
+      "self": {
+        "href": "https://webapi.alza.cz/api/catalog/v2/commodities/5879393/reviewStats?country=CZ"
+      },
+      "ratingAverage": 4.6,
+      "ratingCount": 73,
+      "reviewCount": 14,
+      "reviewCountTooltip": "Počet textových recenzí včetně přeložených recenzí ze zahraničí.",
+      "purchaseCountFormatted": "500+",
+      "showPurchaseCount": true,
+      "recommendationRate": 0.88,
+      "recommendationRateTooltip": "Procento recenzí s nadprůměrným hodnocením.",
+      "ratings": [
+        {
+          "value": 1,
+          "count": 1
+        },
+        {
+          "value": 2,
+          "count": 2
+        },
+        {
+          "value": 3,
+          "count": 6
+        },
+        {
+          "value": 4,
+          "count": 10
+        },
+        {
+          "value": 5,
+          "count": 54
+        }
+      ],
+      "complaint": null
+    }
+  }
+]

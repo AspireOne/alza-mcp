@@ -6,14 +6,17 @@ import { Operation } from "../infra/operation.js";
 import { Cursors } from "../infra/cursor.js";
 import { TtlCache } from "../infra/cache.js";
 import { fail, failureOf } from "../infra/failure.js";
-import { BASE_URL, FILTER_PATH, WEB_API, productId, productUrl } from "../infra/urls.js";
+import { BASE_URL, FILTER_PATH, productId, productUrl } from "../infra/urls.js";
 import { categories, facets, manufacturers, sortOrders, filterRequest, parseFilter, parseRenderedSearch, searchUrl } from "../adapters/catalog.js";
 import { parseProduct } from "../adapters/product.js";
 import { parseReviews, reviewUrl } from "../adapters/reviews.js";
+import { parseReliability, parseReviewStatistics, reviewStatisticsUrl, validateReviewStatistics } from "../adapters/review-statistics.js";
 import { object, pageData } from "../adapters/html.js";
 import { productSchema, searchSchema, reviewsSchema, authSchema } from "./inputs.js";
 import type { AuthMode, Failure, Result, SearchPage, SearchQuery, ReviewsPage, Section } from "./contracts.js";
+import { PRODUCT_SECTIONS } from "./contracts.js";
 import type { Config } from "../infra/config.js";
+import { log } from "../infra/logger.js";
 
 const categoryInput = z.object({ category_id: z.number().int().positive(), auth: authSchema.optional() }).strict();
 const categoryListInput = z.object({ auth: authSchema.optional() }).strict();
@@ -141,9 +144,27 @@ export class Research {
     }
     if (!id) fail("INVALID_INPUT", "The URL must contain a numeric Alza product ID.");
     const doc = await this.cached(reader, op, `product:${id}`, 60_000, () => reader.page(productUrl(id!), { detail: true }));
-    const product = parseProduct(doc.html, doc.url, id, op.meta.auth.state === "signed_in", input.sections);
+    const sections = input.sections ?? [...PRODUCT_SECTIONS];
+    const product = parseProduct(doc.html, doc.url, id, op.meta.auth.state === "signed_in", sections.filter(section => section !== "reliability"));
+    if (sections.includes("reliability")) {
+      try {
+        product.sections.reliability = parseReliability(await this.reviewStatistics(reader, op, id, doc.html));
+      } catch (error) {
+        const failure = failureOf(error, "reliability");
+        if (!PARTIAL_ONLY.has(failure.code)) throw error;
+        log.warn("product.reliability_failed", { request_id: op.id, product_id: id, code: failure.code });
+        product.sections.reliability = { state: "failed", error: failure };
+      }
+    }
     const errors = Object.values(product.sections).flatMap(s => s?.state === "failed" ? [s.error] : []);
     return { data: product, errors };
+  }
+  private async reviewStatistics(reader: Reader, op: Operation, id: number, html?: string): Promise<Record<string, unknown>> {
+    return this.cached(reader, op, `review-stats:${id}`, 300_000, async () => {
+      const source = html ?? (await reader.page(productUrl(id))).html;
+      const data = await reader.json(reviewStatisticsUrl(source, id));
+      return validateReviewStatistics(data, id);
+    });
   }
   private async reviews(reader: Reader, op: Operation, args: Record<string, unknown>, previous?: ReviewState): Promise<Outcome<ReviewsPage>> {
     const id = previous?.id ?? args.product_id as number, offset = previous?.offset ?? 0, limit = previous?.limit ?? args.limit as number ?? 20;
@@ -158,19 +179,7 @@ export class Research {
     if (result.nextOffset === null && seen.size !== result.total) errors.push(problem("INCOMPLETE_RESULTS", "Review pagination ended before the reported count was reached."));
     let statistics: Section<unknown>;
     try {
-      statistics = { state: "available", data: await this.cached(reader, op, `review-stats:${id}`, 300_000, async () => {
-        const doc = await reader.page(productUrl(id));
-        const $ = load(doc.html); let context: URL | undefined;
-        for (const el of $('[data-api-url]').toArray()) { try { const url = new URL($(el).attr('data-api-url')!); if (url.searchParams.has('ucik') && url.searchParams.has('pgrik')) { context = url; break; } } catch {} }
-        if (!context) fail("SCHEMA_CHANGED", "Review-statistics context was not found on the product page.");
-        const url = new URL(`${WEB_API}/api/catalog/v2/commodities/${id}/reviewStats`);
-        for (const key of ['ucik', 'pgrik']) url.searchParams.set(key, context.searchParams.get(key)!);
-        url.searchParams.set('country', 'CZ');
-        const data = object(await reader.json(url.href));
-        if (typeof data.ratingCount !== 'number' || !Array.isArray(data.ratings) || typeof data.reviewCount !== 'number') fail('SCHEMA_CHANGED', 'Review statistics changed shape.');
-        const { ratingAverage, ratingCount, reviewCount, reviewCountTooltip, recommendationRate, recommendationRateTooltip, ratings, purchaseCountFormatted } = data;
-        return { ratingAverage, ratingCount, reviewCount, reviewCountTooltip, recommendationRate, recommendationRateTooltip, ratings, purchaseCountFormatted };
-      }) };
+      statistics = { state: "available", data: parseReviewStatistics(await this.reviewStatistics(reader, op, id)) };
     } catch (error) {
       const failure = failureOf(error, "review_statistics");
       if (!PARTIAL_ONLY.has(failure.code)) throw error;

@@ -8,7 +8,8 @@ import { money, offer, membershipReference, promotionalOffers, couponFromTitle }
 
 const available = (data: unknown): Section<unknown> => ({ state: "available", data });
 const absent: Section<unknown> = { state: "not_provided" };
-export function parseProduct(html: string, url: string, id: number, signedIn: boolean, requested: ProductSection[] = [...PRODUCT_SECTIONS]): Product {
+type HtmlProductSection = Exclude<ProductSection, "reliability">;
+export function parseProduct(html: string, url: string, id: number, signedIn: boolean, requested: HtmlProductSection[] = PRODUCT_SECTIONS.filter(section => section !== "reliability")): Product {
   const $ = load(html), bootstrap = pageData(html), detail = object(bootstrap.data), ld = jsonLd(html, "Product");
   if (!ld || detail.cid !== id || productId(url) !== id) fail("PRODUCT_ID_MISMATCH", "The page does not describe the requested product ID.");
   const name = string(ld.name) || text($("h1").first().text());
@@ -17,7 +18,7 @@ export function parseProduct(html: string, url: string, id: number, signedIn: bo
   const identifiers: Record<string, string> = {};
   for (const key of ["sku", "mpn", "gtin", "gtin13", "gtin14"]) if (typeof ld[key] === "string") identifiers[key] = ld[key] as string;
   const result: Product = { id, code: string(detail.commodityCode) || string(ld.sku), name, url, brand: string(object(ld.brand).name) || string(detail.producerName), identifiers, condition: string(baseOffer.itemCondition), availability: string(baseOffer.availability), sections: {} };
-  const parsers: Record<ProductSection, () => Section<unknown>> = {
+  const parsers: Record<HtmlProductSection, () => Section<unknown>> = {
     description: () => {
       const node = $("#descAnnotation");
       if (node.length && !text(node.text())) fail("SECTION_INCOMPLETE", "The full product description did not finish loading.");

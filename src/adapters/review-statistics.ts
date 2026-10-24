@@ -1,0 +1,61 @@
+import { load } from "cheerio";
+import { z } from "zod";
+import type { Complaint, Reliability, Section } from "../domain/contracts.js";
+import { fail } from "../infra/failure.js";
+import { WEB_API } from "../infra/urls.js";
+import { object, pageData } from "./html.js";
+
+const complaintSchema = z.object({
+  rate: z.number().finite().min(0).max(1).nullable(),
+  type: z.number().int().nonnegative(),
+  description: z.string().min(1),
+  tooltip: z.string().min(1),
+});
+const purchaseCountSchema = z.object({ purchaseCountFormatted: z.string().nullable(), showPurchaseCount: z.boolean() });
+
+export function reviewStatisticsUrl(html: string, id: number): string {
+  if (object(pageData(html).data).cid !== id) fail("PRODUCT_ID_MISMATCH", "The review-statistics page does not describe the requested product ID.");
+  const $ = load(html);
+  for (const el of $('[data-api-url]').toArray()) {
+    let context: URL;
+    try { context = new URL($(el).attr('data-api-url')!); } catch { continue; }
+    if (!context.searchParams.has('ucik') || !context.searchParams.has('pgrik')) continue;
+    const url = new URL(`${WEB_API}/api/catalog/v2/commodities/${id}/reviewStats`);
+    for (const key of ['ucik', 'pgrik']) url.searchParams.set(key, context.searchParams.get(key)!);
+    url.searchParams.set('country', 'CZ');
+    return url.href;
+  }
+  return fail("SCHEMA_CHANGED", "Review-statistics context was not found on the product page.");
+}
+
+export function validateReviewStatistics(raw: unknown, id: number): Record<string, unknown> {
+  const data = object(raw);
+  let self: URL;
+  try { self = new URL(String(object(data.self).href)); }
+  catch { return fail("SCHEMA_CHANGED", "Review statistics have no valid product identity."); }
+  if (self.origin !== WEB_API || self.pathname !== `/api/catalog/v2/commodities/${id}/reviewStats`) {
+    fail("SCHEMA_CHANGED", "Review statistics belong to another product or endpoint.");
+  }
+  return data;
+}
+
+function complaint(data: Record<string, unknown>): Complaint | null {
+  if (data.complaint === null) return null;
+  const parsed = complaintSchema.safeParse(data.complaint);
+  if (!parsed.success) fail("SCHEMA_CHANGED", "Alza's complaint statistics changed shape.");
+  return parsed.data;
+}
+
+export function parseReliability(data: Record<string, unknown>): Section<Reliability> {
+  const assessment = complaint(data);
+  if (!assessment) return { state: "not_provided" };
+  const count = purchaseCountSchema.safeParse(data);
+  if (!count.success) fail("SCHEMA_CHANGED", "The complaint statistics' sales-volume context changed shape.");
+  return { state: "available", data: { complaint: assessment, ...count.data } };
+}
+
+export function parseReviewStatistics(data: Record<string, unknown>) {
+  if (typeof data.ratingCount !== 'number' || !Array.isArray(data.ratings) || typeof data.reviewCount !== 'number') fail('SCHEMA_CHANGED', 'Review statistics changed shape.');
+  const { ratingAverage, ratingCount, reviewCount, reviewCountTooltip, recommendationRate, recommendationRateTooltip, ratings, purchaseCountFormatted, showPurchaseCount } = data;
+  return { ratingAverage, ratingCount, reviewCount, reviewCountTooltip, recommendationRate, recommendationRateTooltip, ratings, purchaseCountFormatted, showPurchaseCount, complaint: complaint(data) };
+}

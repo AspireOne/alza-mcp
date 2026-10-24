@@ -1,4 +1,6 @@
-# Pricing captures
+# Storefront captures
+
+## Pricing
 
 These fixtures retain product identity and pricing markup captured on 2026-10-16
 (Europe/Prague). Unrelated content, SVGs, account identifiers, tracking payloads,
@@ -14,3 +16,17 @@ inputs, not current offers.
 
 Tests derive missing, malformed, duplicated, and multiple-coupon cases from
 these captures. Those mutations are synthetic.
+
+## Review statistics
+
+`review-statistics.json` contains selected fields from live `reviewStats` responses
+captured on 2026-10-24 (Europe/Prague), using the context from each product's own
+page in signed-in Brave. Account context parameters and unrelated response fields
+were removed; complaint and sales-volume values were preserved. Each entry retains
+its source URL, listing ID, and the response's self-link path.
+
+The captures cover a key organiser, vacuum, dryer, phones, headphones, a supplement,
+and a coffee machine. They include zero, low, elevated, unknown, and absent complaint
+data, plus new and opened headphone listings with shared statistics. Values are
+historical inputs, not current reliability claims. Failure cases mutate these
+captures; the page bootstrap and transport in the tests are synthetic.

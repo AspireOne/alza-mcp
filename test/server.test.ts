@@ -20,6 +20,8 @@ describe('MCP wire contracts', () => {
     const [a, b] = InMemoryTransport.createLinkedPair(); await server.connect(a); await client.connect(b); cleanups.push(() => server.close(), () => client.close());
     const tools = await client.listTools(); expect(tools.tools.map(t => t.name)).toEqual(['search_products', 'get_product', 'get_product_reviews', 'list_categories', 'get_category', 'get_session_status']); expect(tools.tools.every(t => t.annotations?.readOnlyHint)).toBe(true);
     expect(client.getInstructions()).toContain('auth="preferred"');
+    expect(client.getInstructions()).toContain('0.02 = 2%');
+    expect(client.getInstructions()).toContain('do not apply a universal 2% threshold');
     for (const tool of tools.tools.filter(t => t.name !== 'get_session_status')) {
       expect(tool.description).toContain('auth="preferred"');
       expect((tool.inputSchema.properties?.auth as { description?: string }).description).toContain('auth="preferred"');

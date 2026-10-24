@@ -70,7 +70,7 @@ Then call the same tool with only `{"cursor":"<next_cursor>"}` until `exhausted`
 
 Price, manufacturer, condition, stock and parameter filters are applied by Alza. Get enum IDs and numeric range boundaries from `get_category`; numeric values use Alza's source units, which may differ from the displayed label. Unsupported sorts fail with the listing's `sort_orders`. If Alza redirects a search to a category hub without listings, `CATEGORY_NOT_LISTABLE` supplies `category_id` and `suggested_categories` for a narrower search. Other unsupported filters fail explicitly. Search results retain Alza's own order and relevance.
 
-Product sections are `description`, `specifications`, `variants`, `media`, `documents`, `offers`, `attributes`, and `ratings`. Each requested section is available, not provided by the page, or failed. Variant selectors expose their displayed options and price differences; these do not always include another product's ID. Search for that variant to retrieve its full detail. Document and media results are links, not downloaded files.
+Product sections are `description`, `specifications`, `variants`, `media`, `documents`, `offers`, `attributes`, `ratings`, and `reliability`. Each requested section is available, not provided by Alza, or failed. Variant selectors expose their displayed options and price differences; these do not always include another product's ID. Search for that variant to retrieve its full detail. Document and media results are links, not downloaded files.
 
 ## Read results correctly
 
@@ -87,6 +87,10 @@ Offers distinguish public, effective, conditional and reference prices. Decimal 
 Use a coupon offer's `amount` as the actual purchase price for comparisons when its code is available and its conditions are met, and tell the user which code to apply. It remains `conditional` because checkout requires the code. Coupon and company benefits can stack; the signed-in advertised coupon total can already include both. Do not choose only one discount, apply either again, or invent a combined total. Cashback is a later reimbursement, not a checkout price. Search returns promotions present in its cards; check product-detail `offers` for promotions omitted from search. Alza's own price filters and sorting may not reflect coupon totals. Missing or malformed promotional prices cause an explicit parsing failure rather than a silently omitted offer.
 
 Rating counts, written-review counts and translated-review counts can differ; reviews preserve the displayed variant and verified-purchase label.
+
+Product `sections.reliability.data` preserves Alza's `complaint` object (`rate`, `type`, `description`, `tooltip`), `purchaseCountFormatted`, and `showPurchaseCount`. Review `statistics.data` also includes these fields. `complaint.rate` is a fraction: `0.0565` means 5.65%. A `null` rate means unknown; an explicitly absent complaint object makes the product section `not_provided`. Missing or malformed expected fields fail explicitly. `type` is Alza's assessment code, not a threshold calculated by this server. Use the supplied label and tooltip to interpret it.
+
+Treat reklamovanost as a secondary signal when comparing a shortlist. Prefer Alza's category-relative assessment and comparisons between similar products; there is no universal 2% cutoff. Avoid overinterpreting small differences among low rates, and highlight elevated rates when relevant. The observed claim rate is not a lifetime failure probability, and zero does not establish reliability. Sales volume is an approximate display, not an exact statistical denominator; `showPurchaseCount` indicates whether Alza displays it. Variant and condition listings can share statistics, so do not treat them as independent samples.
 
 ## Optional account session
 
