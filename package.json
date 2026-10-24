@@ -21,7 +21,7 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --project tsconfig.check.json",
     "validate:api": "tsx scripts/validate-api.ts",
     "prepublishOnly": "npm run build",
     "validate:soak": "tsx scripts/validate-api.ts --soak"
@@ -52,19 +52,21 @@
     "node": ">=24"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
-    "cheerio": "^1.0.0",
-    "jose": "^6.2.12",
+    "@modelcontextprotocol/node": "^2.1.2",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "cheerio": "^1.2.0",
+    "jose": "^6.2.13",
     "json5": "2.2.3",
-    "patchright": "1.63.0",
+    "patchright": "1.64.1",
     "proper-lockfile": "4.1.2",
-    "zod": "^4.6.6"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@types/node": "^24.19.2",
     "@types/proper-lockfile": "^4.1.4",
-    "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "vitest": "^5.0.2"
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
   }
 }

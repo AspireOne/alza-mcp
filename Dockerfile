@@ -1,4 +1,4 @@
-FROM node:24-bookworm@sha256:6dac556d980b7f0e5498d08f08cee0ca67798b4ad6c23964a9214920e67758d0 AS build
+FROM node:24-bookworm@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a AS build
 WORKDIR /app
 COPY --chmod=644 package.json package-lock.json ./
 RUN npm ci --ignore-scripts
@@ -14,7 +14,7 @@ ENTRYPOINT ["node", "--import", "tsx", "scripts/validate-api.ts"]
 FROM build AS production-dependencies
 RUN npm prune --omit=dev --ignore-scripts
 
-FROM node:24-bookworm@sha256:6dac556d980b7f0e5498d08f08cee0ca67798b4ad6c23964a9214920e67758d0
+FROM node:24-bookworm@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a
 ENV NODE_ENV=production PLAYWRIGHT_BROWSERS_PATH=/opt/browsers ALZA_DATA_DIR=/data PORT=3000
 WORKDIR /app
 COPY --from=production-dependencies --chmod=644 /app/package.json /app/package-lock.json ./

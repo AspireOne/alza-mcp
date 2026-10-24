@@ -1,5 +1,5 @@
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { createServer } from "./server.js";
 import type { Research } from "./domain/research.js";
 import { log } from "./infra/logger.js";
@@ -48,7 +48,7 @@ export function httpServer(research: Research, options: HttpOptions) {
     for await (const chunk of req) { size += chunk.length; if (size > MAX_BODY) { reply(res, 413, 'Request body too large'); return; } chunks.push(chunk); }
     let body: unknown; try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { reply(res, 400, 'Invalid JSON'); return; }
     if (Array.isArray(body)) { reply(res, 400, 'JSON-RPC batches are not supported'); return; }
-    const mcp = createServer(research), transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    const mcp = createServer(research), transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     try { await mcp.connect(transport); await transport.handleRequest(req, res, body); }
     finally { await mcp.close(); }
   }

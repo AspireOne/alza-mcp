@@ -3,9 +3,7 @@ import assert from 'node:assert/strict';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { setTimeout } from 'node:timers/promises';
 import { dirname } from 'node:path';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, InMemoryTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { buildApplication, createServer } from '../src/server.js';
 import type { Result, SearchPage, Product, ReviewsPage } from '../src/domain/contracts.js';
 import { finishTrial, readChecks, SEVEN_DAYS_MS } from './validation-report.js';
@@ -33,10 +31,11 @@ try {
   async function call<T>(name: string, args: Record<string, unknown>, verify?: (data: T) => void): Promise<T> {
     const start = Date.now(); let result: Result<T> | undefined, ok = false;
     try {
-      const wire = await client.callTool({ name, arguments: args }, undefined, { timeout: 130_000, signal: stopped.signal });
+      const wire = await client.callTool({ name, arguments: args }, { timeout: 130_000, signal: stopped.signal });
       result = wire.structuredContent as unknown as Result<T>;
       assert(result && ['ok', 'partial', 'error'].includes(result.status), 'Missing structured result');
-      assert.deepEqual(JSON.parse((wire.content as Array<{ text: string }>)[0]!.text), result, 'Text and structured content disagree');
+      // In-memory transport preserves undefined properties that JSON transports omit.
+      assert.deepEqual(JSON.parse((wire.content as Array<{ text: string }>)[0]!.text), JSON.parse(JSON.stringify(result)), 'Text and structured content disagree');
       if (result.status !== 'ok') throw new Error(result.status === 'error' ? result.error.code : result.errors.map(e => e.code).join(','));
       assert.equal(wire.isError, false);
       if (auth === 'required' && name !== 'get_session_status') assert.equal(result.meta.auth.state, 'signed_in');

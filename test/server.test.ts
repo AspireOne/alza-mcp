@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { request } from 'node:http';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, InMemoryTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createServer } from '../src/server.js';
 import { httpServer } from '../src/http.js';
 import { Research } from '../src/domain/research.js';
@@ -50,6 +48,34 @@ describe('MCP wire contracts', () => {
     await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } }));
     expect((await client.callTool({ name: 'get_session_status' })).structuredContent).toMatchObject({ status: 'ok', data: { account_configured: false } });
     expect((await client.callTool({ name: 'get_product', arguments: { product_id: 42 } })).isError).toBe(true);
+  });
+  it('aborts the underlying operation when the client cancels a tool call', async () => {
+    let started!: () => void, aborted!: () => void;
+    const running = new Promise<void>(resolve => { started = resolve; });
+    const cancelled = new Promise<void>(resolve => { aborted = resolve; });
+    const service = new Research(configFromEnv({}), {
+      status: () => ({}), close: async () => {},
+      run: async op => {
+        const signal = op.signal;
+        await new Promise<void>(resolve => {
+          signal.addEventListener('abort', () => { aborted(); resolve(); }, { once: true });
+          started();
+        });
+        op.check();
+        fail('CHALLENGE_UNRESOLVED', 'Cancelled operation must not complete.');
+      },
+    }, new Cursors('x'.repeat(64)));
+    const server = createServer(service), client = new Client({ name: 'cancellation-test', version: '1' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.connect(a); await client.connect(b);
+    cleanups.push(() => server.close(), () => client.close());
+    const controller = new AbortController();
+    const pending = client.callTool({ name: 'search_products', arguments: { query: 'disk' } }, { signal: controller.signal });
+    const rejected = expect(pending).rejects.toThrow('Cancelled by client');
+    await running;
+    controller.abort(new Error('Cancelled by client'));
+    await rejected;
+    await cancelled;
   });
 });
 
