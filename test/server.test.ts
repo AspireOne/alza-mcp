@@ -33,6 +33,7 @@ describe('MCP wire contracts', () => {
     expect(result.isError).toBe(true); expect(result.structuredContent).toMatchObject({ status: 'error', error: { code: 'CHALLENGE_UNRESOLVED' } });
     expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text)).toEqual(result.structuredContent);
     expect(await client.callTool({ name: 'get_product', arguments: {} })).toMatchObject({ isError: true, structuredContent: { error: { code: 'INVALID_INPUT' } } });
+    expect(await client.callTool({ name: 'search_products', arguments: { query: 'disk', filters: { manufacturers: Array(101).fill(null) } } })).toMatchObject({ isError: true, structuredContent: { error: { code: 'INVALID_INPUT' } } });
   });
   it('supports real stateless HTTP clients and rejects token, host, origin and body errors', async () => {
     const http = httpServer(research(), { auth: { mode: 'token', token: 't'.repeat(40) }, port: 3000 });
