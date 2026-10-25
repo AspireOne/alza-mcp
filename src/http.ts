@@ -2,7 +2,9 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { createServer } from "./server.js";
 import type { Research } from "./domain/research.js";
-import { log } from "./infra/logger.js";
+import { randomUUID } from "node:crypto";
+import { memorySnapshot } from "./infra/memory.js";
+import { log, withLogContext } from "./infra/logger.js";
 import { fail } from './infra/failure.js';
 import { createHttpAuthorizer, type HttpAuth } from './http-auth.js';
 
@@ -20,7 +22,20 @@ export function httpServer(research: Research, options: HttpOptions) {
   const hosts = new Set([...origins].map(o => new URL(o).host));
   const active = new Set<Promise<void>>();
   const server = createHttpServer((req, res) => {
-    const work = handle(req, res).catch(error => { log.error('http.request_failed', { name: error instanceof Error ? error.name : 'unknown' }); if (!res.headersSent) reply(res, 500, 'Internal server error'); else res.end(); }).finally(() => active.delete(work));
+    const httpRequestId = randomUUID(), started = performance.now();
+    const fields = { http_request_id: httpRequestId, method: req.method, route: req.url === "/mcp" ? "/mcp" : req.url === "/healthz" ? "/healthz" : "other" };
+    log.info("http.request_started", fields);
+    let completed = false;
+    const complete = () => {
+      if (completed) return;
+      completed = true;
+      const outcome = res.writableFinished ? (res.statusCode < 400 ? "success" : "error") : "aborted";
+      const details = { ...fields, status: res.statusCode, outcome, duration_ms: performance.now() - started, memory: memorySnapshot() };
+      if (outcome === "success") log.info("http.request_completed", details);
+      else log.warn("http.request_completed", details);
+    };
+    res.once("finish", complete); res.once("close", complete);
+    const work = withLogContext({ http_request_id: httpRequestId }, () => handle(req, res)).catch(error => { log.error('http.request_failed', { ...fields, name: error instanceof Error ? error.name : 'unknown' }); if (!res.headersSent) reply(res, 500, 'Internal server error'); else res.end(); }).finally(() => active.delete(work));
     active.add(work);
   });
   server.on('listening', () => {

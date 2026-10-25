@@ -26,16 +26,17 @@ export class AccessCoordinator implements Access {
   }
   private async execute<T>(op: Operation, work: (reader: Reader) => Promise<T>, expectedContext?: string): Promise<T> {
     if (this.closed) fail("BROWSER_UNAVAILABLE", "The server is shutting down.");
-    await this.store.open();
+    await op.step("state.open", {}, () => this.store.open());
     if (op.auth === "required" && !this.store.account) fail("AUTH_NOT_CONFIGURED", "Import an Alza account session before using auth=required.");
     const initial = op.auth !== "anonymous" && this.store.account ? "account" : "anonymous";
     return this.queue.run(op, async () => {
       let kind: "account" | "anonymous" = initial;
       let challengeStartedAt: number | undefined;
-      const recordFailure = (code: string, message: string) => {
+      const recordFailure = (code: string, message: string, provider: Provider) => {
         if (code === "CHALLENGE_UNRESOLVED" && challengeStartedAt === undefined) {
           challengeStartedAt = Date.now();
           op.meta.challenge = { status: "detected" };
+          log.warn("challenge.detected", { request_id: op.id, provider });
         }
         if (kind === "account" && (code === "AUTH_REQUIRED" || code === "AUTH_ACCOUNT_MISMATCH")) {
           op.meta.auth.session_issue = { code, message };
@@ -50,47 +51,52 @@ export class AccessCoordinator implements Access {
       for (const provider of providers) {
         op.check();
         if (provider === "byparr" && kind === "account") {
-          if (op.auth === "required") { op.meta.attempts.push({ provider, outcome: "skipped", code: "RECOVERY_UNSUPPORTED", duration_ms: 0 }); continue; }
+          if (op.auth === "required") { log.info("access.skipped", { request_id: op.id, provider, code: "RECOVERY_UNSUPPORTED" }); op.meta.attempts.push({ provider, outcome: "skipped", code: "RECOVERY_UNSUPPORTED", duration_ms: 0 }); continue; }
           if (expectedContext) fail("CONTEXT_CHANGED", "Recovery would change account pricing. Start a new traversal.");
           kind = "anonymous";
           op.meta.warnings.push({ code: "ANONYMOUS_FALLBACK", message: "The account browser failed; recovery is using public prices." });
         }
         const endpoint = provider === "flaresolverr" ? this.config.flareUrl : this.config.byparrUrl;
-        if (provider !== "browser" && !endpoint) { op.meta.attempts.push({ provider, outcome: "skipped", code: "RECOVERY_PROVIDER_UNAVAILABLE", duration_ms: 0 }); continue; }
+        if (provider !== "browser" && !endpoint) { log.info("access.skipped", { request_id: op.id, provider, code: "RECOVERY_PROVIDER_UNAVAILABLE" }); op.meta.attempts.push({ provider, outcome: "skipped", code: "RECOVERY_PROVIDER_UNAVAILABLE", duration_ms: 0 }); continue; }
         const budget = provider === "browser" ? this.config.primaryMs : provider === "flaresolverr" ? this.config.flareMs : this.config.byparrMs;
         const started = Date.now(), deadline = Math.min(op.deadline - 2000, started + budget);
+        log.info("access.started", { request_id: op.id, provider, profile: kind, budget_ms: Math.max(0, deadline - started) });
         let resource: { reader: Reader; dispose: () => Promise<void> } | undefined;
         try {
           op.meta.cache = { hit: false, age_ms: 0 };
           op.meta.fetched_at = new Date().toISOString();
           op.meta.auth.state = "unverified";
           if (provider === "browser") {
-            try { resource = await this.browser.reader(op, kind, deadline); }
+            try { resource = await op.step("browser.prepare", { provider, profile: kind }, () => this.browser.reader(op, kind, deadline)); }
             catch (error) {
               const failure = failureOf(error);
               if (failure.code !== "AUTH_REQUIRED" || op.auth !== "preferred") throw error;
-              recordFailure(failure.code, failure.message);
+              recordFailure(failure.code, failure.message, provider);
+              log.warn("access.auth_fallback", { request_id: op.id, provider, code: failure.code, profile: "anonymous" });
               op.meta.attempts.push({ provider, outcome: "failed", code: "AUTH_REQUIRED", duration_ms: Date.now() - started });
               if (expectedContext) fail("CONTEXT_CHANGED", "The account session expired. Start a new traversal.");
               kind = "anonymous";
               op.meta.warnings.push({ code: "AUTH_REQUIRED", message: "The configured account session expired. Public prices are being used." });
-              resource = await this.browser.reader(op, kind, deadline);
+              resource = await op.step("browser.prepare", { provider, profile: kind }, () => this.browser.reader(op, kind, deadline));
             }
           } else {
             // Persist and release Chromium before starting another browser on
             // memory-constrained hosts. The next primary request reopens it.
-            await this.browser.close();
+            await op.step("browser.release", { provider }, () => this.browser.close());
             const account = kind === "account" ? this.store.account : undefined;
             const storage = account ? await this.store.importedStorage() : undefined;
             const cookies = storage?.cookies.map(({ expires, ...cookie }) => ({ ...cookie, ...(expires > 0 ? { expiry: Math.floor(expires) } : {}) }));
-            resource = await solverReader(provider, endpoint!, op, deadline, account, cookies);
+            resource = await op.step("solver.prepare", { provider }, () => solverReader(provider, endpoint!, op, deadline, account, cookies));
           }
           if (expectedContext && resource.reader.context !== expectedContext) fail("CONTEXT_CHANGED", "Recovery changed the traversal context.");
           op.meta.provider = provider;
           const result = await work(resource.reader);
           op.check();
           op.meta.attempts.push({ provider, outcome: "success", duration_ms: Date.now() - started });
-          if (challengeStartedAt !== undefined) op.meta.challenge = { status: "solved", duration_ms: Date.now() - challengeStartedAt, provider };
+          if (challengeStartedAt !== undefined) {
+            op.meta.challenge = { status: "solved", duration_ms: Date.now() - challengeStartedAt, provider };
+            log.info("challenge.solved", { request_id: op.id, ...op.meta.challenge });
+          }
           op.meta.sources = [...new Set(op.meta.sources)];
           this.lastFailure = null;
           log.info("access.success", { request_id: op.id, provider, duration_ms: Date.now() - started });
@@ -98,10 +104,10 @@ export class AccessCoordinator implements Access {
         } catch (error) {
           last = error;
           const failure = failureOf(error, provider);
-          recordFailure(failure.code, failure.message);
+          recordFailure(failure.code, failure.message, provider);
           this.lastFailure = failure;
           op.meta.attempts.push({ provider, outcome: "failed", code: failure.code, duration_ms: Date.now() - started });
-          log.warn("access.failed", { request_id: op.id, provider, code: failure.code });
+          log.warn("access.failed", { request_id: op.id, provider, code: failure.code, duration_ms: Date.now() - started });
           if (provider === "flaresolverr" && failure.code === "AUTH_REQUIRED" && op.auth === "preferred") {
             if (expectedContext) fail("CONTEXT_CHANGED", "Recovery lost the account context. Start a new traversal.");
             kind = "anonymous";
@@ -109,10 +115,11 @@ export class AccessCoordinator implements Access {
             continue;
           }
           if (!RECOVERABLE.has(failure.code)) throw error;
-        } finally { await resource?.dispose(); }
+        } finally { if (resource) await op.step("provider.dispose", { provider }, () => resource!.dispose()); }
       }
       const failure = failureOf(last);
       if (op.meta.attempts.some(a => a.code === "CHALLENGE_UNRESOLVED")) {
+        log.warn("challenge.unresolved", { request_id: op.id, duration_ms: challengeStartedAt === undefined ? 0 : Date.now() - challengeStartedAt, cooldown_ms: this.config.cooldownMs });
         this.cooldowns.set(initialContext, Date.now() + this.config.cooldownMs);
         fail("CHALLENGE_UNRESOLVED", "All eligible automatic recovery options failed.", { retryable: true, retry_after_ms: this.config.cooldownMs });
       }
@@ -120,9 +127,9 @@ export class AccessCoordinator implements Access {
     });
   }
   status(): unknown { return { browser: this.browser.status(), queue_size: this.queue.size, account_configured: !!this.store.account, last_failure: this.lastFailure, cooldown_until: Math.max(0, ...this.cooldowns.values()), recovery: { flaresolverr: this.config.flareUrl ? "configured" : "disabled", byparr: this.config.byparrUrl ? "configured" : "disabled" } }; }
-  close(): Promise<void> {
+  close(beforeRelease?: () => Promise<void>): Promise<void> {
     this.closed = true;
-    this.closing ??= (async () => { await Promise.allSettled([...this.active]); try { await this.browser.close(); } finally { await this.store.close(); } })();
+    this.closing ??= (async () => { await Promise.allSettled([...this.active]); try { await this.browser.close(); } finally { try { await beforeRelease?.(); } finally { await this.store.close(); } } })();
     return this.closing;
   }
 }

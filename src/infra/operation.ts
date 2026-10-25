@@ -1,20 +1,39 @@
 import { randomUUID } from "node:crypto";
 import type { AuthMode, Metadata } from "../domain/contracts.js";
-import { fail, FailureError } from "./failure.js";
+import { log, withLogContext } from "./logger.js";
+import { memorySnapshot } from "./memory.js";
+import { fail, failureOf, FailureError } from "./failure.js";
 
 export class Operation {
-  readonly id = randomUUID();
+  readonly id: string;
   readonly deadline: number;
   readonly signal: AbortSignal;
   readonly meta: Metadata;
   private readonly controller = new AbortController();
   private readonly timer: NodeJS.Timeout;
-  constructor(readonly auth: AuthMode, timeoutMs: number, parent?: AbortSignal) {
+  constructor(readonly auth: AuthMode, timeoutMs: number, parent?: AbortSignal, id: string = randomUUID()) {
+    this.id = id;
     this.deadline = Date.now() + timeoutMs;
     this.signal = parent ? AbortSignal.any([parent, this.controller.signal]) : this.controller.signal;
     this.timer = setTimeout(() => this.controller.abort(new FailureError({ code: "TIMEOUT", message: "The operation deadline was reached.", retryable: true })), timeoutMs);
     this.timer.unref();
     this.meta = { request_id: this.id, fetched_at: new Date().toISOString(), sources: [], provider: "browser", auth: { requested: auth, state: "unverified", session_issue: null }, challenge: { status: "not_detected" }, cache: { hit: false, age_ms: 0 }, warnings: [], attempts: [] };
+  }
+  async step<T>(step: string, fields: Record<string, unknown>, work: () => Promise<T>): Promise<T> {
+    const started = performance.now();
+    const context = { ...fields, request_id: this.id, step_id: randomUUID(), step };
+    return withLogContext(context, async () => {
+      log.info("step.started", context);
+      try {
+        const result = await work();
+        log.info("step.completed", { ...context, outcome: "success", duration_ms: performance.now() - started, memory: memorySnapshot() });
+        return result;
+      } catch (error) {
+        const failure = failureOf(error);
+        log.warn("step.completed", { ...context, outcome: "error", code: failure.code, upstream_status: failure.upstream_status, duration_ms: performance.now() - started, memory: memorySnapshot() });
+        throw error;
+      }
+    });
   }
   remaining(max = Infinity): number { this.check(); return Math.max(1, Math.min(max, this.deadline - Date.now())); }
   check(): void {
@@ -35,7 +54,7 @@ export class OperationQueue {
     op.check();
     if (this.running) {
       if (this.waiting.length >= 8) fail("BUSY", "The browser queue is full.", { retryable: true, retry_after_ms: 5000 });
-      await new Promise<void>((resolve, reject) => {
+      await op.step("queue.wait", { queue_size: this.size }, () => new Promise<void>((resolve, reject) => {
         let timer: NodeJS.Timeout;
         const cleanup = () => { clearTimeout(timer); op.signal.removeEventListener("abort", abort); };
         const remove = () => { const i = this.waiting.indexOf(ready); if (i >= 0) this.waiting.splice(i, 1); cleanup(); };
@@ -44,7 +63,7 @@ export class OperationQueue {
         timer = setTimeout(() => { remove(); reject(new FailureError({ code: "TIMEOUT", message: "The operation deadline was reached while waiting for the browser.", retryable: true })); }, op.remaining());
         op.signal.addEventListener("abort", abort, { once: true });
         this.waiting.push(ready);
-      });
+      }));
     } else this.running = true;
     try { op.check(); return await work(); }
     finally {

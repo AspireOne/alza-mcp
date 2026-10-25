@@ -50,9 +50,9 @@ export class SessionBrowser {
   async reader(op: Operation, kind: "anonymous" | "account", deadline: number): Promise<{ reader: Reader; dispose: () => Promise<void> }> {
     op.check();
     if (Date.now() >= deadline) fail("TIMEOUT", "Primary browser budget was exhausted before startup.", { retryable: true });
-    const context = await this.start(kind, Math.min(15_000, deadline - Date.now(), op.remaining()));
+    const context = await op.step("browser.start", { provider: "browser", profile: kind, reused: !!this.context && this.kind === kind }, () => this.start(kind, Math.min(15_000, deadline - Date.now(), op.remaining())));
     op.check();
-    const page = await context.newPage();
+    const page = await op.step("browser.new_page", { provider: "browser" }, () => context.newPage());
     const close = () => { void page.close().catch(() => {}); };
     const timer = setTimeout(close, Math.max(1, deadline - Date.now()));
     op.signal.addEventListener("abort", close, { once: true });
@@ -62,12 +62,13 @@ export class SessionBrowser {
       return Math.min(deadline - Date.now(), op.remaining());
     };
     const network = async <T>(work: () => Promise<T>): Promise<T> => {
-      try { return await work(); }
+      try { return await op.step("browser.network", { provider: "browser", attempt: 1 }, work); }
       catch (error) {
         op.check(); remaining();
         if (error instanceof FailureError) throw error;
         op.meta.warnings.push({ code: "NETWORK_RETRY", message: "Retrying one transient browser request within the existing deadline." });
-        try { return await work(); }
+        log.warn("browser.retry", { request_id: op.id, provider: "browser", attempt: 2 });
+        try { return await op.step("browser.network", { provider: "browser", attempt: 2 }, work); }
         catch (cause) { op.check(); remaining(); throw new FailureError({ code: "NETWORK_ERROR", message: "An Alza browser request failed twice.", retryable: true }, { cause }); }
       }
     };
@@ -75,19 +76,20 @@ export class SessionBrowser {
     const verify = (html: string) => { op.meta.auth.state = verifyIdentity(html, expected); };
     const reader: Reader = {
       provider: "browser", canPost: true, context: expected ? `account:${expected.generation}` : "anonymous",
-      page: async (url, options) => {
+      page: async (url, options) => op.step("browser.page", { provider: "browser", path: new URL(url).pathname }, async () => {
         try {
           alzaUrl(url);
           const response = await network(() => page.goto(url, { waitUntil: "load", timeout: remaining() }));
+          log.info("upstream.response", { request_id: op.id, provider: "browser", status: response?.status() ?? null });
           const headers = response ? await response.allHeaders() : {};
           let html = await page.content();
           classifyResponse(response?.status() ?? null, headers, html);
           alzaUrl(page.url());
           verify(html);
-          if (options?.detail) await hydrateDetail(page, remaining);
+          if (options?.detail) await op.step("browser.hydrate_detail", { provider: "browser" }, () => hydrateDetail(page, remaining, op));
           if (options?.stock && typeof object(pageData(html).data).categoryTypeId === "number") {
-            await page.locator("label").filter({ hasText: "Skladem kdekoliv" }).locator('input[type="radio"]').first()
-              .waitFor({ timeout: Math.min(remaining(), 5000) }).catch(() => {});
+            await op.step("browser.wait_stock", { provider: "browser" }, () => page.locator("label").filter({ hasText: "Skladem kdekoliv" }).locator('input[type="radio"]').first()
+              .waitFor({ timeout: Math.min(remaining(), 5000) })).catch(() => {});
           }
           html = await page.content();
           verify(html);
@@ -96,8 +98,8 @@ export class SessionBrowser {
           remaining();
           return document;
         } catch (error) { remaining(); throw error; }
-      },
-      json: async (url, body) => {
+      }),
+      json: async (url, body) => op.step("browser.json", { provider: "browser", path: new URL(url).pathname, method: body === undefined ? "GET" : "POST" }, async () => {
         const target = alzaUrl(url);
         if (body !== undefined && new URL(target).pathname !== FILTER_PATH) fail("INVALID_INPUT", "Only the read-only catalog filter POST is supported.");
         const timeout = remaining();
@@ -109,11 +111,12 @@ export class SessionBrowser {
           });
           return { status: response.status, headers: Object.fromEntries(response.headers), text: await response.text(), url: response.url };
         }, { target, body, timeout: Math.min(timeout, remaining()) }));
+        log.info("upstream.response", { request_id: op.id, provider: "browser", status: result.status });
         alzaUrl(result.url);
         classifyResponse(result.status, result.headers, result.text);
         op.meta.sources.push(target);
         return decodeJson(result.text);
-      },
+      }),
     };
     try {
       // A fresh first-party page verifies authentication even for cached/public API results.
@@ -125,31 +128,33 @@ export class SessionBrowser {
   async close(): Promise<void> { const context = this.context; this.context = undefined; this.kind = undefined; await context?.close(); }
 }
 
-async function hydrateDetail(page: Page, remaining: () => number): Promise<void> {
+async function hydrateDetail(page: Page, remaining: () => number, op: Operation): Promise<void> {
   // Tabs trigger the same read-only requests used by the storefront. Preserve both loaded sections.
   for (const selector of ["#hlTabParameters", 'a[href="#description"]']) {
     const link = page.locator(selector).first();
     if (!await link.count()) continue;
-    await link.click({ timeout: Math.min(remaining(), 3000) }).catch(() => {});
+    await op.step("browser.detail_tab", { selector }, () => link.click({ timeout: Math.min(remaining(), 3000) })).catch(() => {});
   }
   const description = page.locator("#descAnnotation");
-  if (await description.count()) await description.scrollIntoViewIfNeeded({ timeout: Math.min(remaining(), 3000) }).catch(() => {});
-  await page.waitForFunction(() => {
+  if (await description.count()) await op.step("browser.detail_scroll", {}, () => description.scrollIntoViewIfNeeded({ timeout: Math.min(remaining(), 3000) })).catch(() => {});
+  await op.step("browser.detail_sections", {}, () => page.waitForFunction(() => {
     const params = document.querySelector("#parameters");
     const description = document.querySelector("#descAnnotation");
     return (!params || !!params.querySelector(".param, table, [class*=parameter]")) && (!description || !!description.textContent?.trim());
-  }, undefined, { timeout: Math.min(remaining(), 5000) }).catch(() => {});
+  }, undefined, { timeout: Math.min(remaining(), 5000) })).catch(() => {});
   const selectors = page.locator('[data-testid="detailVariantSelectComponentOpenOptionsButton"]');
   const groups: unknown[] = [];
   for (let i = 0; i < await selectors.count(); i++) {
     const selector = selectors.nth(i);
     try {
-      const label = await selector.innerText();
-      await selector.click({ timeout: Math.min(remaining(), 2000) });
-      await page.locator('[role="listbox"] [role="option"]').first().waitFor({ timeout: Math.min(remaining(), 2000) });
-      const options = await page.locator('[role="listbox"] [role="option"]').evaluateAll(nodes => nodes.map(n => ({ label: n.textContent?.trim(), selected: n.getAttribute('aria-selected') === 'true' })));
-      groups.push({ label, options });
-      await page.keyboard.press('Escape');
+      await op.step("browser.detail_variant", { index: i }, async () => {
+        const label = await selector.innerText();
+        await selector.click({ timeout: Math.min(remaining(), 2000) });
+        await page.locator('[role="listbox"] [role="option"]').first().waitFor({ timeout: Math.min(remaining(), 2000) });
+        const options = await page.locator('[role="listbox"] [role="option"]').evaluateAll(nodes => nodes.map(n => ({ label: n.textContent?.trim(), selected: n.getAttribute('aria-selected') === 'true' })));
+        groups.push({ label, options });
+        await page.keyboard.press('Escape');
+      });
     } catch { break; }
   }
   if (groups.length && groups.length === await selectors.count()) await page.evaluate(groups => {

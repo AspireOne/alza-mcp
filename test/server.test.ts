@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { request } from 'node:http';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { Client, InMemoryTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -10,7 +10,7 @@ import { configFromEnv } from '../src/infra/config.js';
 import { fail } from '../src/infra/failure.js';
 const research = () => new Research(configFromEnv({}), { run: async () => fail('CHALLENGE_UNRESOLVED', 'Challenge recovery exhausted.', { retryable: true }), status: () => ({ account_configured: false }), close: async () => {} }, new Cursors('x'.repeat(64)));
 const cleanups: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
+afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe('MCP wire contracts', () => {
   it('advertises only read tools and sends the complete error in text and structured content', async () => {
@@ -36,6 +36,9 @@ describe('MCP wire contracts', () => {
     expect(await client.callTool({ name: 'search_products', arguments: { query: 'disk', filters: { manufacturers: Array(101).fill(null) } } })).toMatchObject({ isError: true, structuredContent: { error: { code: 'INVALID_INPUT' } } });
   });
   it('supports real stateless HTTP clients and rejects token, host, origin and body errors', async () => {
+    vi.stubEnv('ALZA_LOG_LEVEL', 'info'); vi.stubEnv('ALZA_DEBUG', 'false');
+    const records: Array<Record<string, any>> = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation(chunk => { records.push(JSON.parse(String(chunk))); return true; });
     const http = httpServer(research(), { auth: { mode: 'token', token: 't'.repeat(40) }, port: 3000 });
     await new Promise<void>(resolve => http.server.listen(0, '127.0.0.1', resolve)); cleanups.push(http.close);
     const address = http.server.address() as { port: number }; const url = `http://127.0.0.1:${address.port}/mcp`;
@@ -48,6 +51,19 @@ describe('MCP wire contracts', () => {
     await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } }));
     expect((await client.callTool({ name: 'get_session_status' })).structuredContent).toMatchObject({ status: 'ok', data: { account_configured: false } });
     expect((await client.callTool({ name: 'get_product', arguments: { product_id: 42 } })).isError).toBe(true);
+    const completed = records.filter(r => r.msg === 'http.request_completed');
+    expect(completed).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: 401, outcome: 'error', duration_ms: expect.any(Number) }),
+      expect.objectContaining({ status: 403, outcome: 'error' }),
+      expect.objectContaining({ status: 421, outcome: 'error' }),
+      expect.objectContaining({ status: 413, outcome: 'error' }),
+    ]));
+    for (const tool of records.filter(r => r.msg === 'request.completed')) {
+      expect(tool.http_request_id).toEqual(expect.any(String));
+      expect(completed.filter(r => r.http_request_id === tool.http_request_id)).toMatchObject([{ status: 200, outcome: 'success' }]);
+    }
+    expect(records.filter(r => r.msg === 'request.completed').map(r => r.outcome)).toEqual(['ok', 'error']);
+    expect(JSON.stringify(records)).not.toContain('t'.repeat(40));
   });
   it('aborts the underlying operation when the client cancels a tool call', async () => {
     let started!: () => void, aborted!: () => void;

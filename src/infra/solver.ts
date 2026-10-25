@@ -2,6 +2,7 @@ import { classifyResponse, decodeJson } from "../adapters/html.js";
 import type { Account } from "./state.js";
 import type { Reader } from "./reader.js";
 import type { Operation } from "./operation.js";
+import { log } from "./logger.js";
 import { fail, FailureError } from "./failure.js";
 import { alzaUrl, BASE_URL } from "./urls.js";
 import { verifyIdentity } from "./identity.js";
@@ -14,27 +15,34 @@ export async function solverReader(provider: "flaresolverr" | "byparr", endpoint
     return Math.max(1, Math.min(deadline - Date.now(), op.remaining()));
   };
   async function command(body: Record<string, unknown>): Promise<Record<string, any>> {
-    const timeout = remaining();
-    try {
-      const response = await fetch(`${endpoint}/v1`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.any([op.signal, AbortSignal.timeout(timeout)]) });
-      if (!response.ok) fail("RECOVERY_PROVIDER_UNAVAILABLE", `${provider} returned HTTP ${response.status}.`, { retryable: true, stage: provider });
-      const data = await response.json() as Record<string, any>;
-      if (data.status !== "ok") fail("RECOVERY_PROVIDER_UNAVAILABLE", `${provider} did not return a successful recovery.`, { retryable: true, stage: provider });
-      return data;
-    } catch (error) {
-      op.check();
-      if (error instanceof FailureError) throw error;
-      remaining();
-      fail("RECOVERY_PROVIDER_UNAVAILABLE", `${provider} could not be reached or returned an invalid response.`, { retryable: true, stage: provider });
-    }
+    return op.step("solver.command", { provider, command: body.cmd }, async () => {
+      const timeout = remaining();
+      try {
+        const response = await fetch(`${endpoint}/v1`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.any([op.signal, AbortSignal.timeout(timeout)]) });
+        log.info("solver.response", { request_id: op.id, provider, command: body.cmd, status: response.status });
+        if (!response.ok) fail("RECOVERY_PROVIDER_UNAVAILABLE", `${provider} returned HTTP ${response.status}.`, { retryable: true, stage: provider });
+        const data = await response.json() as Record<string, any>;
+        if (data.status !== "ok") fail("RECOVERY_PROVIDER_UNAVAILABLE", `${provider} did not return a successful recovery.`, { retryable: true, stage: provider });
+        return data;
+      } catch (error) {
+        op.check();
+        if (error instanceof FailureError) throw error;
+        remaining();
+        fail("RECOVERY_PROVIDER_UNAVAILABLE", `${provider} could not be reached or returned an invalid response.`, { retryable: true, stage: provider });
+      }
+    });
   }
   const dispose = async () => {
     if (provider !== "flaresolverr") return;
     // Cleanup has its own short budget, including when the operation was cancelled.
-    await fetch(`${endpoint}/v1`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cmd: "sessions.destroy", session }), signal: AbortSignal.timeout(2000) }).catch(() => {});
+    await op.step("solver.cleanup", { provider, command: "sessions.destroy" }, async () => {
+      const response = await fetch(`${endpoint}/v1`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cmd: "sessions.destroy", session }), signal: AbortSignal.timeout(2000) });
+      const data = await response.json() as Record<string, unknown>;
+      if (!response.ok || data.status !== "ok") fail("RECOVERY_PROVIDER_UNAVAILABLE", "Solver session cleanup failed.", { upstream_status: response.status });
+    }).catch(() => {});
   };
   let seeded = false;
-  const read = async (url: string) => {
+  const read = async (url: string) => op.step("solver.read", { provider, path: new URL(url).pathname }, async () => {
     const target = alzaUrl(url);
     const data = await command({ cmd: "request.get", url: target, maxTimeout: Math.max(1000, Math.floor(remaining())), ...(provider === "flaresolverr" ? { session, waitInSeconds: 1, ...(!seeded && cookies ? { cookies } : {}) } : { blockMedia: false }) });
     seeded = true;
@@ -45,7 +53,7 @@ export async function solverReader(provider: "flaresolverr" | "byparr", endpoint
     classifyResponse(null, {}, solution.response);
     op.meta.sources.push(finalUrl);
     return { url: finalUrl, html: solution.response as string, status: null, headers: {} };
-  };
+  });
   const reader: Reader = {
     provider, canPost: false, context: account ? `account:${account.generation}` : "anonymous",
     page: async url => {

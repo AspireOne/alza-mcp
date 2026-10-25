@@ -64,8 +64,8 @@ export function createServer(research: Research, signal?: AbortSignal): McpServe
   });
   return server;
 }
-export async function buildApplication(config: Config = configFromEnv()): Promise<{ research: Research; close: () => Promise<void> }> {
+export async function buildApplication(config: Config = configFromEnv()): Promise<{ research: Research; close: (beforeRelease?: () => Promise<void>) => Promise<void> }> {
   const store = new StateStore(config.dataDir); await store.open();
   const access = new AccessCoordinator(config, store);
-  return { research: new Research(config, access, new Cursors(store.key)), close: () => access.close() };
+  return { research: new Research(config, access, new Cursors(store.key)), close: beforeRelease => access.close(beforeRelease) };
 }

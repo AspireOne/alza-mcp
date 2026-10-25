@@ -16,6 +16,7 @@ import { productSchema, searchSchema, reviewsSchema, authSchema } from "./inputs
 import type { AuthMode, Failure, Result, SearchPage, SearchQuery, ReviewsPage, Section } from "./contracts.js";
 import { PRODUCT_SECTIONS } from "./contracts.js";
 import type { Config } from "../infra/config.js";
+import { memorySnapshot } from "../infra/memory.js";
 import { log } from "../infra/logger.js";
 
 const categoryInput = z.object({ category_id: z.number().int().positive(), auth: authSchema.optional() }).strict();
@@ -36,6 +37,10 @@ export class Research {
   constructor(readonly config: Config, readonly access: Access, private readonly cursors: Cursors) {}
   async call(name: ToolName, input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
     let op = new Operation(this.config.authMode, this.config.timeoutMs, signal);
+    const started = performance.now();
+    let result: Result<unknown> | undefined;
+    const finish = (value: Result<unknown>) => { result = value; return value; };
+    log.info("request.started", { request_id: op.id, tool: name, memory: memorySnapshot() });
     try {
       const parsed = INPUTS[name].safeParse(input);
       if (!parsed.success) fail("INVALID_INPUT", parsed.error.issues.map(i => `${i.path.join(".") || "input"}: ${i.message}`).join("; "));
@@ -50,9 +55,9 @@ export class Research {
         if (args.auth && args.auth !== continuation.auth) fail("CONTEXT_CHANGED", "Do not change authentication mode during a traversal.");
       }
       op.dispose();
-      op = new Operation(continuation?.auth ?? args.auth as AuthMode ?? this.config.authMode, this.config.timeoutMs, signal);
-      if (name === "get_session_status") return { status: "ok", data: this.access.status(), meta: op.meta };
-      const outcome = await this.access.run(op, async reader => {
+      op = new Operation(continuation?.auth ?? args.auth as AuthMode ?? this.config.authMode, this.config.timeoutMs, signal, op.id);
+      if (name === "get_session_status") return finish({ status: "ok", data: this.access.status(), meta: op.meta });
+      const outcome = await this.access.run(op, async reader => op.step("research.execute", { provider: reader.provider }, async () => {
         switch (name) {
           case "search_products": return this.search(reader, op, args, continuation?.kind === "search" ? continuation : undefined);
           case "get_product": return this.product(reader, op, args);
@@ -67,15 +72,24 @@ export class Research {
           }) };
           default: return fail("INVALID_INPUT", "Unknown research tool.");
         }
-      }, continuation?.context);
-      if (outcome.errors?.length) return { status: "partial", data: outcome.data, errors: outcome.errors, meta: op.meta };
-      return { status: "ok", data: outcome.data, meta: op.meta };
-    } catch (error) { return { status: "error", error: failureOf(error), meta: op.meta }; }
-    finally { op.dispose(); }
+      }), continuation?.context);
+      if (outcome.errors?.length) return finish({ status: "partial", data: outcome.data, errors: outcome.errors, meta: op.meta });
+      return finish({ status: "ok", data: outcome.data, meta: op.meta });
+    } catch (error) { return finish({ status: "error", error: failureOf(error), meta: op.meta }); }
+    finally {
+      op.dispose();
+      const fields = { request_id: op.id, tool: name, outcome: result?.status ?? "error", duration_ms: performance.now() - started,
+        provider: op.meta.provider, auth: op.auth, auth_state: op.meta.auth.state, challenge: op.meta.challenge,
+        cache: op.meta.cache, attempts: op.meta.attempts, warning_codes: op.meta.warnings.map(w => w.code),
+        error_codes: result?.status === "error" ? [result.error.code] : result?.status === "partial" ? result.errors.map(e => e.code) : [], memory: memorySnapshot() };
+      if (result?.status === "ok") log.info("request.completed", fields);
+      else log.warn("request.completed", fields);
+    }
   }
   private async cached<T>(reader: Reader, op: Operation, key: string, ttl: number, loader: () => Promise<T>): Promise<T> {
     const cacheKey = `${reader.context}:${reader.provider}:${key}`, cached = this.cache.get(cacheKey);
     if (cached && Date.now() - cached.at < ttl) {
+      log.info("cache.hit", { request_id: op.id, provider: reader.provider, age_ms: Date.now() - cached.at });
       op.meta.cache = { hit: true, age_ms: Math.max(op.meta.cache.age_ms, Date.now() - cached.at) };
       op.meta.fetched_at = new Date(Math.min(Date.parse(op.meta.fetched_at), cached.at)).toISOString(); op.meta.sources.push(...cached.sources);
       return structuredClone(cached.value) as T;

@@ -38,10 +38,20 @@ describe('automatic recovery', () => {
     expect(observed).toEqual([false, false, false]);
   });
   it('reads a JSON solver wrapper and destroys the temporary session after success', async () => {
+    const records: Array<Record<string, any>> = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation(chunk => { records.push(JSON.parse(String(chunk))); return true; });
     const { access, commands } = await setup(); const op = new Operation('anonymous', 120_000);
     try { expect(await access.run(op, r => r.json('https://webapi.alza.cz/api/catalog/example'))).toEqual({ answer: 42 }); }
     finally { op.dispose(); }
     expect(commands.map(c => c.cmd)).toEqual(['sessions.create', 'request.get', 'sessions.destroy']);
+    expect(records.filter(r => r.msg === 'challenge.detected' || r.msg === 'challenge.solved')).toMatchObject([
+      { msg: 'challenge.detected', request_id: op.id, provider: 'browser' },
+      { msg: 'challenge.solved', request_id: op.id, provider: 'flaresolverr', duration_ms: expect.any(Number) },
+    ]);
+    expect(records.filter(r => r.msg === 'step.completed' && r.step === 'solver.command')).toMatchObject([
+      { request_id: op.id, provider: 'flaresolverr', command: 'sessions.create', outcome: 'success', duration_ms: expect.any(Number) },
+      { request_id: op.id, provider: 'flaresolverr', command: 'request.get', outcome: 'success', duration_ms: expect.any(Number) },
+    ]);
     expect(op.meta.attempts).toMatchObject([{ provider: 'browser', outcome: 'failed' }, { provider: 'flaresolverr', outcome: 'success' }]);
     expect(commands[1]!.maxTimeout).toBeGreaterThan(49_000);
     expect(commands[1]!.maxTimeout).toBeLessThanOrEqual(50_000);

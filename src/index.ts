@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
-import { log } from './infra/logger.js';
+import { startMemoryMonitor } from './infra/memory.js';
+import { log, startFileLogging, closeFileLogging } from './infra/logger.js';
 import { buildApplication, createServer } from './server.js';
 import { configFromEnv } from './infra/config.js';
 import { httpServer } from './http.js';
@@ -19,8 +20,11 @@ async function main(): Promise<void> {
   }
   if (positionals.length || values.storage || values.profile || values['expected-user-id']) throw new Error('Invalid arguments. Use --help.');
   const application = await buildApplication(config);
+  let stopMemoryMonitor = () => {};
   let closeTransport: () => Promise<void>;
   try {
+    await startFileLogging(config.dataDir);
+    stopMemoryMonitor = startMemoryMonitor();
     if (values.http || process.env.ALZA_TRANSPORT === 'http') {
       const port = Number(process.env.PORT ?? '3000'); if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT.');
       const auth = httpAuthFromEnv(process.env);
@@ -32,11 +36,22 @@ async function main(): Promise<void> {
       closeTransport = () => server.close(); log.info('stdio.ready');
       process.stdin.once('end', () => void shutdown());
     }
-  } catch (error) { await application.close(); throw error; }
+  } catch (error) {
+    stopMemoryMonitor();
+    log.error('server.start_failed', { code: failureOf(error).code });
+    await application.close(closeFileLogging);
+    throw error;
+  }
   let closing = false;
   async function shutdown(): Promise<void> {
-    if (closing) return; closing = true; log.info('server.stopping');
-    try { try { await closeTransport(); } finally { await application.close(); } } catch { process.exitCode = 1; }
+    if (closing) return; closing = true; stopMemoryMonitor(); log.info('server.stopping');
+    try {
+      try { await closeTransport(); }
+      finally {
+        // Drain active work, then file writes, before releasing the data-directory lease.
+        await application.close(closeFileLogging);
+      }
+    } catch { process.exitCode = 1; }
   }
   process.once('SIGINT', () => void shutdown()); process.once('SIGTERM', () => void shutdown());
 }
