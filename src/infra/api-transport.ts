@@ -76,7 +76,8 @@ export class Http2Transport implements Transport {
     });
   }
   async close(): Promise<void> {
-    await Promise.all([...this.sessions.values()].map(session => new Promise<void>(resolve => session.close(resolve))));
+    // A session stays mapped until its close event, so that event always fires; close(callback) may not if closing already began.
+    await Promise.all([...this.sessions.values()].map(session => new Promise<void>(resolve => { session.once("close", () => resolve()); session.close(); })));
     this.sessions.clear();
   }
 }

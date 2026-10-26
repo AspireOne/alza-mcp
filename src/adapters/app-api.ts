@@ -1,8 +1,7 @@
 import { load } from "cheerio";
 import { z } from "zod";
 import type { Category, Facet, Listing, Offer, Product, Section, Sort } from "../domain/contracts.js";
-import { SWITCH_HINT } from "../infra/api-session.js";
-import { fail } from "../infra/failure.js";
+import { fail, SWITCH_HINT } from "../infra/failure.js";
 import { log } from "../infra/logger.js";
 import { alzaUrl, productId } from "../infra/urls.js";
 import { blockText, text } from "./html.js";

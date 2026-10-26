@@ -2,12 +2,12 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { fail, failureOf } from "./failure.js";
+import { fail, failureOf, SWITCH_HINT } from "./failure.js";
+import { expectedUserIdArg } from "./identity.js";
 import { log } from "./logger.js";
 import type { Transport } from "./api-transport.js";
 
 export const APP_USER_AGENT = "Alza/2026.21.0 (Android)";
-export const SWITCH_HINT = "The API backend may no longer match Alza's app interface; set ALZA_BACKEND=browser to use the browser backend.";
 const AUTHORITY = "https://identity.alza.cz";
 const CLIENT_ID = "alza_Android";
 // The Android app's embedded client secret, as published by the upstream
@@ -62,10 +62,10 @@ export function startLogin(): PendingLogin {
 
 /** Exchanges the pasted `alza://identity?code=…` redirect and stores the session after checking the account identity. */
 export async function completeLogin(dataDir: string, transport: Transport, pending: PendingLogin, redirect: string, expectedUserId: string): Promise<void> {
-  if (!/^\d+$/.test(expectedUserId) || Number(expectedUserId) <= 0) fail("INVALID_INPUT", "--expected-user-id must be your numeric Alza account ID.");
-  const query = new URLSearchParams(redirect.trim().slice(redirect.indexOf("?") + 1));
+  expectedUserIdArg(expectedUserId);
+  const link = redirect.trim(), query = new URLSearchParams(link.slice(link.indexOf("?") + 1));
   const code = query.get("code");
-  if (!redirect.trim().startsWith(`${REDIRECT_URI}?`) || !code) fail("INVALID_INPUT", `Paste the complete ${REDIRECT_URI}?code=… link.`);
+  if (!link.startsWith(`${REDIRECT_URI}?`) || !code) fail("INVALID_INPUT", `Paste the complete ${REDIRECT_URI}?code=… link.`);
   if (query.get("state") !== pending.state) fail("INVALID_INPUT", "The pasted link belongs to a different sign-in attempt. Start again.");
   const tokens = await tokenRequest(transport, { grant_type: "authorization_code", code, redirect_uri: REDIRECT_URI, code_verifier: pending.verifier });
   if (!tokens.refresh_token) fail("SCHEMA_CHANGED", `Alza issued no refresh token. ${SWITCH_HINT}`);
@@ -100,12 +100,18 @@ export class ApiSession {
   get expectedUserId(): string { return this.stored.expectedUserId; }
   get visitorId(): string { return this.stored.visitorId; }
   get expiresAt(): string { return new Date(claims(this.stored.accessToken).exp * 1000).toISOString(); }
-  /** A valid access token for the configured account, refreshed once for all concurrent callers when it nears expiry. */
-  async accessToken(): Promise<string> {
-    if (claims(this.stored.accessToken).exp * 1000 - Date.now() > REFRESH_MARGIN_MS) return this.stored.accessToken;
+  /**
+   * A valid access token for the configured account, refreshed once for all concurrent callers when it nears expiry
+   * or when Alza rejected the current token (`rejected`) before its expiry.
+   */
+  async accessToken(rejected?: string): Promise<string> {
+    const current = this.stored.accessToken;
+    if (rejected !== current && claims(current).exp * 1000 - Date.now() > REFRESH_MARGIN_MS) return current;
     this.refreshing ??= this.refresh().finally(() => { this.refreshing = undefined; });
     return this.refreshing;
   }
+  /** Resolves when no refresh is writing the session file. */
+  async settled(): Promise<void> { await this.refreshing?.catch(() => {}); }
   private async refresh(): Promise<string> {
     const started = performance.now();
     try {

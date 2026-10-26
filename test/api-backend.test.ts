@@ -7,7 +7,7 @@ import { apiCatalog } from '../src/domain/api-catalog.js';
 import { configFromEnv } from '../src/infra/config.js';
 import { Cursors } from '../src/infra/cursor.js';
 import { ApiAccess, classifyApiResponse } from '../src/infra/api-access.js';
-import { ApiSession } from '../src/infra/api-session.js';
+import { ApiSession, completeLogin, startLogin } from '../src/infra/api-session.js';
 import type { RawResponse, RequestInit, Transport } from '../src/infra/api-transport.js';
 import type { StateStore } from '../src/infra/state.js';
 import { failureOf } from '../src/infra/failure.js';
@@ -97,13 +97,27 @@ describe('API backend research', () => {
     expect(await h.research.call('get_product', { product_id: 13458454, sections: ['offers'] })).toMatchObject({ status: 'error', error: { code: 'AUTH_ACCOUNT_MISMATCH' } });
   });
   it('falls back to public prices only when the account is preferred', async () => {
-    // Alza answers every router request as an anonymous visitor, as it does after a token is revoked.
-    const h = await backend(async url => url.pathname.startsWith('/api/router/') ? { ...(await fixture('product-13458454')), user_id: -1 } : undefined);
+    // Alza answers every router request as an anonymous visitor and the grant is gone, as after a sign-out.
+    const h = await backend(async url => url.pathname === '/connect/token' ? { status: 400, body: '{"error":"invalid_grant"}' } : url.pathname.startsWith('/api/router/') ? { ...(await fixture('product-13458454')), user_id: -1 } : undefined);
     const preferred = await h.research.call('get_product', { product_id: 13458454, sections: ['offers'] });
     expect(preferred).toMatchObject({ status: 'ok', meta: { auth: { state: 'anonymous', session_issue: { code: 'AUTH_REQUIRED' } }, warnings: [{ code: 'AUTH_REQUIRED' }] } });
     expect(h.transport.requests.at(-1)!.init.headers?.authorization).toBeUndefined();
     expect(await h.research.call('get_product', { product_id: 13458454, sections: ['offers'], auth: 'required' })).toMatchObject({ status: 'error', error: { code: 'AUTH_REQUIRED' } });
     expect(await (await backend(undefined, false)).research.call('get_product', { product_id: 13458454, auth: 'required' })).toMatchObject({ status: 'error', error: { code: 'AUTH_NOT_CONFIGURED' } });
+  });
+  it('recovers a token Alza revoked before its expiry with one refresh', async () => {
+    const renewed = jwt({ sub: USER_ID, exp: Math.floor(Date.now() / 1000) + 3600, jti: 'renewed' });
+    const h = await backend(async (url, init) => {
+      if (url.pathname === '/connect/token') return { access_token: renewed, refresh_token: 'refresh-2' };
+      if (url.pathname.startsWith('/api/router/') && init.headers?.authorization !== `Bearer ${renewed}`) return { ...(await fixture('product-13458454')), user_id: -1 };
+      return undefined;
+    });
+    expect(await h.research.call('get_product', { product_id: 13458454, sections: ['offers'], auth: 'required' })).toMatchObject({ status: 'ok', meta: { auth: { state: 'signed_in', session_issue: null } } });
+    expect(h.transport.requests.filter(r => r.url.pathname === '/connect/token')).toHaveLength(1);
+  });
+  it('fails the whole product when a supplementary request is blocked rather than returning a partial', async () => {
+    const h = await backend(url => url.hostname === 'm.alza.cz' ? { status: 403, body: '' } : undefined);
+    expect(await h.research.call('get_product', { product_id: 13458454, sections: ['description', 'offers'] })).toMatchObject({ status: 'error', error: { code: 'API_BLOCKED' } });
   });
   it('sends validated category filters in the app format and links the matching website listing', async () => {
     const h = await backend(), producer = (await fixture('facets-18857353')).producers[0].v;
@@ -147,6 +161,12 @@ describe('app API mappings', () => {
 });
 
 describe('API session', () => {
+  it('accepts a pasted sign-in link with surrounding whitespace', async () => {
+    const dir = await sessionDir(), pending = startLogin();
+    const transport = new FakeTransport(() => ({ access_token: token(3600), refresh_token: 'refresh-1' }));
+    await completeLogin(dir, transport, pending, `  alza://identity?code=abc&state=${pending.state}  \n`, USER_ID);
+    expect(new URLSearchParams(transport.requests[0]!.init.body).get('code')).toBe('abc');
+  });
   const tokenEndpoint = (respond: () => unknown) => new FakeTransport(async url => { expect(url.pathname).toBe('/connect/token'); return respond(); });
   it('refreshes once for concurrent callers and persists the rotated token before use', async () => {
     const dir = await sessionDir(token(-10)), next = token(3600);

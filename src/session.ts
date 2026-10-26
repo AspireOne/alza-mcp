@@ -7,12 +7,13 @@ import { applyStorage } from "./infra/session-browser.js";
 import { accountFromHtml, classifyResponse } from "./adapters/html.js";
 import { BASE_URL } from "./infra/urls.js";
 import { fail } from "./infra/failure.js";
+import { expectedUserIdArg } from "./infra/identity.js";
 import { createInterface } from "node:readline/promises";
 import { completeLogin, startLogin } from "./infra/api-session.js";
 import { Http2Transport } from "./infra/api-transport.js";
 
 export async function importSession(config: Config, options: { storage?: string; profile?: string; expectedUserId: string }): Promise<void> {
-  if (!/^\d+$/.test(options.expectedUserId) || Number(options.expectedUserId) <= 0) fail("INVALID_INPUT", "--expected-user-id must be your numeric Alza account ID.");
+  expectedUserIdArg(options.expectedUserId);
   if (Number(!!options.storage) + Number(!!options.profile) !== 1) fail("INVALID_INPUT", "Supply exactly one of --storage or --profile.");
   const store = new StateStore(config.dataDir); await store.open();
   const temporary = await mkdtemp(join(config.dataDir, 'import-'));
@@ -46,6 +47,7 @@ export async function importSession(config: Config, options: { storage?: string;
 
 /** Signs the API backend in through Alza's app login. The browser cannot open the app's alza:// redirect, so the user pastes it back. */
 export async function loginApiSession(config: Config, expectedUserId: string): Promise<void> {
+  expectedUserIdArg(expectedUserId);
   const store = new StateStore(config.dataDir); await store.open();
   const transport = new Http2Transport();
   const prompt = createInterface({ input: process.stdin, output: process.stderr });

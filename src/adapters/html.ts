@@ -1,5 +1,5 @@
 import { load, type CheerioAPI } from "cheerio";
-import { fail } from "../infra/failure.js";
+import { fail, retryAfterMs } from "../infra/failure.js";
 
 export type HtmlSource = string | CheerioAPI;
 export function htmlDocument(source: HtmlSource): CheerioAPI { return typeof source === "string" ? load(source) : source; }
@@ -79,9 +79,7 @@ export function classifyResponse(status: number | null, headers: Record<string, 
     /Prosím, potvrďte, že jste z masa a kostí/i.test($("body").text());
   if (challenge) fail("CHALLENGE_UNRESOLVED", "Alza returned a human-verification challenge.", { retryable: true, upstream_status: status ?? undefined });
   if (status === 429) {
-    const retry = headers["retry-after"];
-    const delay = retry && /^\d+$/.test(retry) ? Number(retry) * 1000 : retry ? Math.max(0, Date.parse(retry) - Date.now()) : 60_000;
-    fail("RATE_LIMITED", "Alza rate limited the request.", { retryable: true, retry_after_ms: Number.isFinite(delay) ? delay : 60_000, upstream_status: status });
+    fail("RATE_LIMITED", "Alza rate limited the request.", { retryable: true, retry_after_ms: retryAfterMs(headers["retry-after"]), upstream_status: status });
   }
   if (status === 401) fail("AUTH_REQUIRED", "Alza requires a valid account session.", { upstream_status: status });
   if (status === 403) fail("UPSTREAM_ACCESS_DENIED", "Alza denied access without a recognized challenge.", { upstream_status: status });

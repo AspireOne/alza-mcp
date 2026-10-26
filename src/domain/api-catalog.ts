@@ -7,6 +7,7 @@ import {
   manualsSchema, mediaSection, offersSection, parse, productListSchema, productSchema, productV14Schema, searchListSchema, sortsOf, specificationsSection, variantsSection, variantsSchema,
 } from "../adapters/app-api.js";
 import type { Catalog } from "./catalog.js";
+import { PARTIAL_ONLY } from "./research.js";
 import type { Facet, ProductSection, SearchQuery, Section } from "./contracts.js";
 
 const RESTSERVICE = `${BASE_URL}/services/restservice.svc`;
@@ -65,7 +66,11 @@ type Loaded<T> = { state: "loaded"; data: T } | { state: "failed"; error: Return
 async function optional<T>(wanted: boolean, load: () => Promise<T>): Promise<Loaded<T>> {
   if (!wanted) return null;
   try { return { state: "loaded", data: await load() }; }
-  catch (error) { return { state: "failed", error: failureOf(error) }; }
+  catch (error) {
+    const failure = failureOf(error);
+    if (!PARTIAL_ONLY.has(failure.code)) throw error;
+    return { state: "failed", error: failure };
+  }
 }
 function from<T>(value: Loaded<T>, build: (data: T | null) => Section<unknown>): Section<unknown> {
   return value?.state === "failed" ? value : build(value?.data ?? null);

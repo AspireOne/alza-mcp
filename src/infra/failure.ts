@@ -6,6 +6,14 @@ export class FailureError extends Error {
     this.name = "FailureError";
   }
 }
+/** Tells the user how to leave the API backend when Alza's app interface no longer matches. */
+export const SWITCH_HINT = "The API backend may no longer match Alza's app interface; set ALZA_BACKEND=browser to use the browser backend.";
+const DEFAULT_RETRY_AFTER_MS = 60_000;
+/** Parses Retry-After as delta-seconds or an HTTP date. */
+export function retryAfterMs(header: string | undefined): number {
+  const delay = header && /^\d+$/.test(header) ? Number(header) * 1000 : header ? Math.max(0, Date.parse(header) - Date.now()) : DEFAULT_RETRY_AFTER_MS;
+  return Number.isFinite(delay) ? delay : DEFAULT_RETRY_AFTER_MS;
+}
 export function fail(code: string, message: string, details: Omit<Failure, "code" | "message" | "retryable"> & { retryable?: boolean } = {}): never {
   throw new FailureError({ code, message, retryable: false, ...details });
 }

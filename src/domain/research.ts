@@ -27,7 +27,8 @@ interface ReviewState { kind: "reviews"; id: number; offset: number; limit: numb
 type Continuation = (SearchState | ReviewState) & { context: string; auth: AuthMode };
 interface Cached { value: unknown; at: number; sources: string[] }
 const cursorState = z.object({ id: z.string().uuid(), auth: authSchema });
-const PARTIAL_ONLY = new Set(["SCHEMA_CHANGED", "PARSE_ERROR", "SECTION_INCOMPLETE", "UPSTREAM_ERROR"]);
+/** Failures confined to one section; others (timeouts, blocks, auth) fail the whole operation. */
+export const PARTIAL_ONLY = new Set(["SCHEMA_CHANGED", "PARSE_ERROR", "SECTION_INCOMPLETE", "UPSTREAM_ERROR"]);
 
 export class Research<S extends Source> implements ResearchService {
   private readonly continuations = new TtlCache<string, Continuation>(3_600_000, 1000);

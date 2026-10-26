@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { Failure } from "../domain/contracts.js";
 import type { Config } from "./config.js";
-import { fail, failureOf, FailureError } from "./failure.js";
+import { fail, failureOf, FailureError, retryAfterMs, SWITCH_HINT } from "./failure.js";
 import { log } from "./logger.js";
 import type { Operation } from "./operation.js";
 import type { Access, Source } from "./reader.js";
 import type { StateStore } from "./state.js";
-import { APP_USER_AGENT, ApiSession, SWITCH_HINT } from "./api-session.js";
+import { APP_USER_AGENT, ApiSession } from "./api-session.js";
 import type { RawResponse, Transport } from "./api-transport.js";
 
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -24,8 +24,7 @@ export function classifyApiResponse(response: RawResponse, format: "json" | "tex
   const { status, headers, body } = response;
   if (status === 403) fail("API_BLOCKED", `Alza's bot protection rejected the API backend${headers["cf-mitigated"] === "challenge" || body.includes("var getData") ? " with a challenge" : ""}. ${SWITCH_HINT}`, { upstream_status: 403 });
   if (status === 429) {
-    const retry = Number(headers["retry-after"]);
-    fail("RATE_LIMITED", "Alza rate limited the request.", { retryable: true, retry_after_ms: Number.isFinite(retry) ? retry * 1000 : 60_000, upstream_status: 429 });
+    fail("RATE_LIMITED", "Alza rate limited the request.", { retryable: true, retry_after_ms: retryAfterMs(headers["retry-after"]), upstream_status: 429 });
   }
   if (status === 401) fail("AUTH_REQUIRED", "Alza rejected the API session.", { upstream_status: 401 });
   if (status === 400) fail("API_REQUEST_REJECTED", `Alza rejected the API backend's request as invalid. ${SWITCH_HINT}`, { upstream_status: 400 });
@@ -83,33 +82,49 @@ export class ApiAccess implements Access<ApiSource> {
     op.meta.cache = { hit: false, age_ms: 0 };
     op.meta.fetched_at = new Date().toISOString();
     op.meta.auth.state = "unverified";
-    const token = session ? await op.step("api.session_token", {}, () => op.waitFor(session.accessToken())) : undefined;
+    let token = session ? await op.step("api.session_token", {}, () => op.waitFor(session.accessToken())) : undefined;
+    // Alza can revoke an access token before its expiry; one refresh per operation tells that from an expired grant.
+    let renewed = false;
     // An app token is a stateless credential: its own claims establish the account
     // until an envelope proves otherwise, so cache hits need no extra request.
     const verify = async () => { if (op.meta.auth.state === "unverified") op.meta.auth.state = session ? "signed_in" : "anonymous"; };
     const request = (url: string, body: unknown, format: "json" | "text") => op.step("api.request", { provider: "api", path: new URL(url).pathname, method: body === undefined ? "GET" : "POST" }, async () => {
-      const headers: Record<string, string> = {
-        "user-agent": APP_USER_AGENT, accept: format === "json" ? "application/json" : "text/html", "accept-language": "cs-CZ,cs;q=0.9",
-        "balancer-guid": session?.visitorId ?? this.anonymousVisitor, "x-correlation-id": randomUUID(),
-        ...(token ? { authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { "content-type": "application/json" }),
-      };
-      const send = () => this.transport.request(url, { method: body === undefined ? "GET" : "POST", headers, body: body === undefined ? undefined : JSON.stringify(body), signal: op.signal, timeoutMs: op.remaining(REQUEST_TIMEOUT_MS) });
-      let response: RawResponse;
-      try { response = await send(); }
-      catch (error) {
-        op.check();
-        if (error instanceof FailureError) throw error;
-        op.meta.warnings.push({ code: "NETWORK_RETRY", message: "Retrying one transient API request within the existing deadline." });
-        log.warn("api.retry", { request_id: op.id, provider: "api", attempt: 2 });
+      const send = () => this.transport.request(url, {
+        method: body === undefined ? "GET" : "POST", body: body === undefined ? undefined : JSON.stringify(body), signal: op.signal, timeoutMs: op.remaining(REQUEST_TIMEOUT_MS),
+        headers: {
+          "user-agent": APP_USER_AGENT, accept: format === "json" ? "application/json" : "text/html", "accept-language": "cs-CZ,cs;q=0.9",
+          "balancer-guid": session?.visitorId ?? this.anonymousVisitor, "x-correlation-id": randomUUID(),
+          ...(token ? { authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+      });
+      const exchange = async () => {
+        let response: RawResponse;
         try { response = await send(); }
-        catch (cause) { op.check(); if (cause instanceof FailureError) throw cause; throw new FailureError({ code: "NETWORK_ERROR", message: "An Alza API request failed twice.", retryable: true }, { cause }); }
-      }
-      log.info("upstream.response", { request_id: op.id, provider: "api", status: response.status });
-      const data = classifyApiResponse(response, format);
-      const userId = (data as { user_id?: unknown } | null)?.user_id;
-      if (typeof userId === "number") {
-        if (session && userId === ANONYMOUS_USER_ID) fail("AUTH_REQUIRED", "Alza answered the API session as an anonymous visitor.");
-        if (session ? String(userId) !== session.expectedUserId : userId !== ANONYMOUS_USER_ID) fail("AUTH_ACCOUNT_MISMATCH", "Alza answered for a different account than configured.");
+        catch (error) {
+          op.check();
+          if (error instanceof FailureError) throw error;
+          op.meta.warnings.push({ code: "NETWORK_RETRY", message: "Retrying one transient API request within the existing deadline." });
+          log.warn("api.retry", { request_id: op.id, provider: "api", attempt: 2 });
+          try { response = await send(); }
+          catch (cause) { op.check(); if (cause instanceof FailureError) throw cause; throw new FailureError({ code: "NETWORK_ERROR", message: "An Alza API request failed twice.", retryable: true }, { cause }); }
+        }
+        log.info("upstream.response", { request_id: op.id, provider: "api", status: response.status });
+        const data = classifyApiResponse(response, format);
+        const userId = (data as { user_id?: unknown } | null)?.user_id;
+        if (typeof userId === "number") {
+          if (session && userId === ANONYMOUS_USER_ID) fail("AUTH_REQUIRED", "Alza answered the API session as an anonymous visitor.");
+          if (session ? String(userId) !== session.expectedUserId : userId !== ANONYMOUS_USER_ID) fail("AUTH_ACCOUNT_MISMATCH", "Alza answered for a different account than configured.");
+        }
+        return data;
+      };
+      let data: unknown;
+      try { data = await exchange(); }
+      catch (error) {
+        if (!session || renewed || failureOf(error).code !== "AUTH_REQUIRED") throw error;
+        renewed = true;
+        log.warn("api_session.token_rejected", { request_id: op.id });
+        token = await op.waitFor(session.accessToken(token));
+        data = await exchange();
       }
       await verify();
       op.meta.sources.push(url);
@@ -128,6 +143,8 @@ export class ApiAccess implements Access<ApiSource> {
   close(beforeRelease?: () => Promise<void>): Promise<void> {
     this.closing ??= (async () => {
       await Promise.allSettled([...this.active]);
+      // An abandoned refresh may still persist a rotated token; it must land before the lease is released.
+      await this.session?.settled();
       try { await this.transport.close(); } finally { try { await beforeRelease?.(); } finally { await this.store.close(); } }
     })();
     return this.closing;
