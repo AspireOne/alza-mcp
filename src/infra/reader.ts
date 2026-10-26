@@ -22,7 +22,7 @@ export interface Reader extends Source {
 }
 export interface Access<S extends Source = Reader> {
   run<T>(op: Operation, work: (source: S) => Promise<T>, expectedContext?: string): Promise<T>;
-  status(): unknown;
+  status(): Record<string, unknown>;
   close(): Promise<void>;
 }
 export interface BrowserOptions { auth: AuthMode; signal?: AbortSignal }

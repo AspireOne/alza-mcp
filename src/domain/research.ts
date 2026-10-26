@@ -8,7 +8,7 @@ import { fail, failureOf } from "../infra/failure.js";
 import { productId } from "../infra/urls.js";
 import { parseReviews, reviewUrl } from "../adapters/reviews.js";
 import { parseRatingSummary, parseReliability, parseReviewStatistics, validateReviewStatistics } from "../adapters/review-statistics.js";
-import { productSchema, searchSchema, reviewsSchema, authSchema } from "./inputs.js";
+import { productSchema, searchSchema, reviewsSchema, authSchema, categoryInput, categoryListInput } from "./inputs.js";
 import type { AuthMode, Failure, Result, SearchPage, SearchQuery, ReviewsPage, Section } from "./contracts.js";
 import { PRODUCT_SECTIONS } from "./contracts.js";
 import type { Cache, Catalog } from "./catalog.js";
@@ -16,8 +16,6 @@ import type { Config } from "../infra/config.js";
 import { memorySnapshot } from "../infra/memory.js";
 import { log } from "../infra/logger.js";
 
-const categoryInput = z.object({ category_id: z.number().int().positive(), auth: authSchema.optional() }).strict();
-const categoryListInput = z.object({ auth: authSchema.optional() }).strict();
 export const INPUTS = { search_products: searchSchema, get_product: productSchema, get_product_reviews: reviewsSchema, list_categories: categoryListInput, get_category: categoryInput, get_session_status: z.object({}).strict() };
 export type ToolName = keyof typeof INPUTS;
 export interface ResearchService { call(name: ToolName, input: unknown, signal?: AbortSignal): Promise<Result<unknown>> }
@@ -61,7 +59,7 @@ export class Research<S extends Source> implements ResearchService {
       }
       op.dispose();
       op = this.operation(continuation?.auth ?? args.auth as AuthMode ?? this.config.authMode, signal, op.id);
-      if (name === "get_session_status") return finish({ status: "ok", data: this.access.status(), meta: op.meta });
+      if (name === "get_session_status") return finish({ status: "ok", data: { backend: this.config.backend, ...this.access.status() }, meta: op.meta });
       const outcome = await this.access.run(op, async source => op.step("research.execute", { provider: source.provider }, async () => {
         switch (name) {
           case "search_products": return this.search(source, op, args, continuation?.kind === "search" ? continuation : undefined);

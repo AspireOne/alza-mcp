@@ -165,7 +165,7 @@ export class AccessCoordinator implements Access {
       throw new FailureError(failure);
     });
   }
-  status(): unknown { return { browser: this.browser.status(), queue_size: this.queue.size, active_requests: this.queue.active, browser_concurrency: this.queue.concurrency, account_configured: !!this.store.account, last_failure: this.lastFailure, cooldown_until: Math.max(0, ...this.cooldowns.values()), recovery: { flaresolverr: this.config.flareUrl ? "configured" : "disabled", byparr: this.config.byparrUrl ? "configured" : "disabled" } }; }
+  status(): Record<string, unknown> { return { browser: this.browser.status(), queue_size: this.queue.size, active_requests: this.queue.active, browser_concurrency: this.queue.concurrency, account_configured: !!this.store.account, last_failure: this.lastFailure, cooldown_until: Math.max(0, ...this.cooldowns.values()), recovery: { flaresolverr: this.config.flareUrl ? "configured" : "disabled", byparr: this.config.byparrUrl ? "configured" : "disabled" } }; }
   close(beforeRelease?: () => Promise<void>): Promise<void> {
     this.closed = true;
     this.cancelIdle();

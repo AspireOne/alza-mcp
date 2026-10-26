@@ -77,7 +77,7 @@ The API backend's results differ from the browser's in these ways:
 | `search_products` | `query` or `category_id`, optional filters and sort; one complete upstream page, supported `sort_orders`, and a continuation cursor. |
 | `get_product` | Exactly one of `product_id`, `url`, or `code`; optional `sections`. Codes can match multiple conditions, so numeric IDs are preferred. |
 | `get_product_reviews` | `product_id`, optional `limit` from 1 to 50; written reviews, statistics and a continuation cursor. |
-| `get_session_status` | Local backend, account-configuration, queue and recovery state. Does not verify a login. |
+| `get_session_status` | Backend, account configuration, active requests and last failure, plus browser queue and recovery state or API token expiry. Does not verify a login. |
 
 For example, start with:
 

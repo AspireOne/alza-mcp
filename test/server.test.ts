@@ -19,12 +19,14 @@ describe('MCP wire contracts', () => {
     const [a, b] = InMemoryTransport.createLinkedPair(); await server.connect(a); await client.connect(b); cleanups.push(() => server.close(), () => client.close());
     const tools = await client.listTools(); expect(tools.tools.map(t => t.name)).toEqual(['search_products', 'get_product', 'get_product_reviews', 'list_categories', 'get_category', 'get_session_status']); expect(tools.tools.every(t => t.annotations?.readOnlyHint)).toBe(true);
     expect(client.getInstructions()).toContain('auth="preferred"');
-    expect(client.getInstructions()).toContain('0.02 = 2%');
-    expect(client.getInstructions()).toContain('do not apply a universal 2% threshold');
     for (const tool of tools.tools.filter(t => t.name !== 'get_session_status')) {
-      expect(tool.description).toContain('auth="preferred"');
-      expect((tool.inputSchema.properties?.auth as { description?: string }).description).toContain('auth="preferred"');
+      expect(tool.description).not.toContain('"preferred"');
+      expect((tool.inputSchema.properties?.auth as { description?: string }).description).toContain('Use "preferred" for normal requests');
     }
+    const product = tools.tools.find(t => t.name === 'get_product')!;
+    expect(product.description).toContain('0.02 = 2%');
+    expect(product.description).toContain('do not apply a universal 2% threshold');
+    expect(product.description).not.toContain('backend');
     for (const tool of tools.tools.filter(t => t.name === 'search_products' || t.name === 'get_product')) {
       expect(tool.description).toContain('actual purchase price');
       expect(tool.description).toContain('company benefits can stack');
@@ -53,7 +55,7 @@ describe('MCP wire contracts', () => {
     expect((await fetch(url, { method: 'POST', headers, body: 'x'.repeat(1_048_577) })).status).toBe(413);
     const client = new Client({ name: 'http-test', version: '1' }); cleanups.push(() => client.close());
     await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } }));
-    expect((await client.callTool({ name: 'get_session_status' })).structuredContent).toMatchObject({ status: 'ok', data: { account_configured: false } });
+    expect((await client.callTool({ name: 'get_session_status' })).structuredContent).toMatchObject({ status: 'ok', data: { backend: 'browser', account_configured: false } });
     expect((await client.callTool({ name: 'get_product', arguments: { product_id: 42 } })).isError).toBe(true);
     const completed = records.filter(r => r.msg === 'http.request_completed');
     expect(completed).toEqual(expect.arrayContaining([

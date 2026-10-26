@@ -137,8 +137,8 @@ export class ApiAccess implements Access<ApiSource> {
     this.lastFailure = null;
     return result;
   }
-  status(): unknown {
-    return { backend: "api", account_configured: !!this.session, access_token_expires_at: this.session?.expiresAt ?? null, active_requests: this.active.size, last_failure: this.lastFailure };
+  status(): Record<string, unknown> {
+    return { account_configured: !!this.session, access_token_expires_at: this.session?.expiresAt ?? null, active_requests: this.active.size, last_failure: this.lastFailure };
   }
   close(beforeRelease?: () => Promise<void>): Promise<void> {
     this.closing ??= (async () => {
