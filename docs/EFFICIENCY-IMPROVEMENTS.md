@@ -297,15 +297,15 @@ Direct DOM tab activation with browser-click fallback was also tested. Its full 
 
 The matched comparison used the existing deployed image and an isolated candidate with the compiled application mounted into the same image. Each arm imported a separate profile and called the real research service with the same twelve-call shopping schedule, including five concurrent client calls per shopping batch. These timings exclude MCP transport and the public Cloudflare gateway. Both arms retained concurrency 2 and the same container limits.
 
-| Pi workload | Existing implementation | Selected implementation |
-| --- | --- | --- |
-| Cold shopping batch | 44.39 s | 39.05 s |
-| Warm shopping batch | 13.84 s | 13.19 s |
-| Two review pages | 5.34 s | 4.99 s |
-| Total | 63.58 s | 57.23 s |
+| Pi workload | Existing implementation | Selected implementation | Deployed-image repeat |
+| --- | --- | --- | --- |
+| Cold shopping batch | 44.39 s | 39.05 s | 38.65 s |
+| Warm shopping batch | 13.84 s | 13.19 s | 11.57 s |
+| Two review pages | 5.34 s | 4.99 s | 4.41 s |
+| Total | 63.58 s | 57.23 s | 54.64 s |
 
-All twelve selected calls succeeded while signed in. Every product section, category search, category details and review result matched the baseline semantically. The free-text search supplied a changed first-page membership in the later arm; repeating it with the unchanged deployed implementation returned exactly the same current results, confirming upstream variation. The measured total improvement is approximately 10%, not a promise of that reduction for every request. Broader claims that most hydration time can simply be removed are unsupported.
+All twelve selected calls succeeded while signed in. Every product section, category search, category details and review result matched the baseline semantically. The free-text search supplied a changed first-page membership in the later arm; repeating it with the unchanged deployed implementation returned exactly the same current results, confirming upstream variation. The measured total improvement is approximately 10–14% across the two selected runs, not a promise of that reduction for every request. Broader claims that most hydration time can simply be removed are unsupported.
 
-Validation covers 158 automated tests, typechecking, build, and signed-in MCP smoke checks in Docker and on the native host. Mutation checks confirm that stale final identity verification and incomplete variant snapshots are rejected. A local Docker smoke run also encountered a real challenge before product hydration and recovered through FlareSolverr while retaining signed-in results; this is evidence for the retained recovery path, not a long-term CAPTCHA frequency estimate.
+Validation covers 158 automated tests, typechecking, build, and signed-in MCP smoke checks in Docker and on the native host. Mutation checks confirm that stale final identity verification and incomplete variant snapshots are rejected. Commit `2d6e6ad` passed [GitHub CI](https://github.com/AspireOne/alza-mcp/actions/runs/40311156305) and deployed successfully: the healthy production container matched all eight changed runtime module hashes. The repeat used that exact image with an isolated profile; all twelve results matched the selected candidate semantically. Temporary operator containers, volumes and files were removed after collecting reports. A local Docker smoke run also encountered a real challenge before product hydration and recovered through FlareSolverr while retaining signed-in results; this is evidence for the retained recovery path, not a long-term CAPTCHA frequency estimate.
 
 Diagnostic source probes and CPU profiles remain under Git-ignored `.artifacts/platform-diagnosis/`; optimization comparisons, rejected candidates, mutation checks and local validation reports are under `.artifacts/dom-optimization/`. No memory limits or memory-monitoring behavior were changed.
