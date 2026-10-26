@@ -193,8 +193,8 @@ export class SessionBrowser {
       if (this.activeReaders) await new Promise<void>(resolve => this.idle.add(resolve));
       const closed = await Promise.allSettled([...this.slots.values()].map(async slot => {
         const context = slot.context ?? await slot.starting?.catch(() => undefined);
-        slot.context = undefined;
         await context?.close();
+        if (slot.context === context) slot.context = undefined;
       }));
       const failure = closed.find(result => result.status === "rejected");
       if (failure?.status === "rejected") throw failure.reason;

@@ -7,6 +7,7 @@ import { SessionBrowser } from "./session-browser.js";
 import { solverReader } from "./solver.js";
 import { StateStore } from "./state.js";
 import { log } from "./logger.js";
+import { memorySnapshot } from "./memory.js";
 
 const RECOVERABLE = new Set(["CHALLENGE_UNRESOLVED", "NETWORK_ERROR", "TIMEOUT", "BROWSER_UNAVAILABLE", "RECOVERY_PROVIDER_UNAVAILABLE", "RECOVERY_UNSUPPORTED"]);
 export class AccessCoordinator implements Access {
@@ -17,12 +18,36 @@ export class AccessCoordinator implements Access {
   private closed = false;
   private readonly active = new Set<Promise<unknown>>();
   private closing?: Promise<void>;
+  private idleTimer?: NodeJS.Timeout;
   constructor(readonly config: Config, readonly store: StateStore) { this.queue = new OperationQueue(config.browserConcurrency); this.browser = new SessionBrowser(config, store); }
   run<T>(op: Operation, work: (reader: Reader) => Promise<T>, expectedContext?: string): Promise<T> {
+    this.cancelIdle();
     const pending = this.execute(op, work, expectedContext);
     this.active.add(pending);
-    void pending.finally(() => this.active.delete(pending)).catch(() => {});
+    void pending.finally(() => {
+      this.active.delete(pending);
+      if (!this.active.size && !this.closed && this.config.browserIdleTimeoutMs > 0) {
+        const timer = setTimeout(() => {
+          if (this.idleTimer !== timer || this.closed || this.active.size) return;
+          this.idleTimer = undefined;
+          void this.closeIdleBrowser();
+        }, this.config.browserIdleTimeoutMs);
+        this.idleTimer = timer;
+        timer.unref();
+      }
+    }).catch(() => {});
     return pending;
+  }
+  private cancelIdle(): void { clearTimeout(this.idleTimer); this.idleTimer = undefined; }
+  private async closeIdleBrowser(): Promise<void> {
+    const started = performance.now();
+    log.info("browser.idle_close.started", { idle_timeout_ms: this.config.browserIdleTimeoutMs, memory: memorySnapshot() });
+    try {
+      await this.browser.close();
+      log.info("browser.idle_close.completed", { duration_ms: performance.now() - started, memory: memorySnapshot() });
+    } catch (error) {
+      log.warn("browser.idle_close.failed", { code: failureOf(error).code, duration_ms: performance.now() - started, memory: memorySnapshot() });
+    }
   }
   private async execute<T>(op: Operation, work: (reader: Reader) => Promise<T>, expectedContext?: string): Promise<T> {
     if (this.closed) fail("BROWSER_UNAVAILABLE", "The server is shutting down.");
@@ -143,6 +168,7 @@ export class AccessCoordinator implements Access {
   status(): unknown { return { browser: this.browser.status(), queue_size: this.queue.size, active_requests: this.queue.active, browser_concurrency: this.queue.concurrency, account_configured: !!this.store.account, last_failure: this.lastFailure, cooldown_until: Math.max(0, ...this.cooldowns.values()), recovery: { flaresolverr: this.config.flareUrl ? "configured" : "disabled", byparr: this.config.byparrUrl ? "configured" : "disabled" } }; }
   close(beforeRelease?: () => Promise<void>): Promise<void> {
     this.closed = true;
+    this.cancelIdle();
     this.closing ??= (async () => { await Promise.allSettled([...this.active]); try { await this.browser.close(); } finally { try { await beforeRelease?.(); } finally { await this.store.close(); } } })();
     return this.closing;
   }

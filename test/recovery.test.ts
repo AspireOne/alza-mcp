@@ -9,7 +9,7 @@ import { configFromEnv } from '../src/infra/config.js';
 import { Operation } from '../src/infra/operation.js';
 import { FailureError } from '../src/infra/failure.js';
 const cleanup: Array<() => Promise<unknown>> = [];
-afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); vi.restoreAllMocks(); });
+afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); vi.restoreAllMocks(); vi.useRealTimers(); });
 async function setup(challenge = false, onCommand: () => void = () => {}) {
   const commands: Array<Record<string, any>> = [];
   const server = createServer(async (req, res) => {
@@ -27,6 +27,27 @@ async function setup(challenge = false, onCommand: () => void = () => {}) {
   return { access, commands };
 }
 describe('automatic recovery', () => {
+  it('does not idle-close during recovery and starts inactivity after recovery finishes', async () => {
+    const { access } = await setup();
+    access.config.browserIdleTimeoutMs = 100;
+    let release!: () => void, entered!: () => void;
+    const draining = new Promise<void>(resolve => { release = resolve; });
+    const waiting = new Promise<void>(resolve => { entered = resolve; });
+    const close = vi.spyOn(access.browser, 'close').mockImplementationOnce(async () => { entered(); await draining; });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const op = new Operation('anonymous', 120_000);
+    const pending = access.run(op, r => r.json('https://webapi.alza.cz/api/catalog/example'));
+    try {
+      await waiting;
+      await vi.advanceTimersByTimeAsync(200);
+      expect(close).toHaveBeenCalledTimes(1);
+      release();
+      expect(await pending).toEqual({ answer: 42 });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(close).toHaveBeenCalledTimes(2);
+    } finally { release(); op.dispose(); }
+  });
+
   it('cancels a recovery wait without waiting for another reader to release the browser', async () => {
     const { access, commands } = await setup();
     let release!: () => void, entered!: () => void;

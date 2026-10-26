@@ -145,6 +145,7 @@ For a consistent backup, stop the application, archive the complete `/data` volu
 | `ALZA_DATA_DIR` | `.alza-mcp` locally, `/data` in Docker | Persistent profiles, account manifest and cursor key. |
 | `ALZA_AUTH_MODE` | `preferred` | Default authentication mode. |
 | `ALZA_BROWSER_CONCURRENCY` | `2` | Maximum simultaneous research operations, each with its own page. Set `1` for serialized access. Only `1` and `2` are supported. |
+| `ALZA_BROWSER_IDLE_TIMEOUT_MS` | `3600000` (one hour) | Close managed Chromium browsers after this many milliseconds without pending research requests. `0` disables idle shutdown; maximum `2147483647`. The server and recovery services stay running. Profiles persist; the next research request relaunches Chromium. Status and health checks do not reset the timer. |
 | `ALZA_HTTP_AUTH` | `token` | `token` for a static bearer token or `cloudflare-access` for Cloudflare Access Managed OAuth. |
 | `ALZA_MCP_TOKEN` | Required in `token` mode | At least 32 characters; use a random value. Ignored in Cloudflare Access mode. |
 | `ALZA_ACCESS_TEAM_DOMAIN` | Required in Cloudflare Access mode | Access team hostname without `https://` or a path. |
