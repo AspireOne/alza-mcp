@@ -10,7 +10,7 @@ import { BASE_URL, FILTER_PATH, productId, productUrl } from "../infra/urls.js";
 import { categories, categoryIdentity, facets, manufacturers, sortOrders, filterRequest, parseFilter, parseRenderedSearch, searchUrl } from "../adapters/catalog.js";
 import { parseProduct } from "../adapters/product.js";
 import { parseReviews, reviewUrl } from "../adapters/reviews.js";
-import { parseReliability, parseReviewStatistics, reviewStatisticsUrl, validateReviewStatistics } from "../adapters/review-statistics.js";
+import { parseRatingSummary, parseReliability, parseReviewStatistics, reviewStatisticsUrl, validateReviewStatistics } from "../adapters/review-statistics.js";
 import { object, pageData } from "../adapters/html.js";
 import { productSchema, searchSchema, reviewsSchema, authSchema } from "./inputs.js";
 import type { AuthMode, Failure, Result, SearchPage, SearchQuery, ReviewsPage, Section } from "./contracts.js";
@@ -175,14 +175,21 @@ export class Research {
     const coverage = full && Date.now() - full.at < PRODUCT_CACHE_MS ? DETAIL_HYDRATION : hydration;
     const doc = await this.cached(reader, op, `product:${id}:${coverage.join(",")}`, PRODUCT_CACHE_MS, () => reader.page(productUrl(id!), { detail: coverage }));
     const product = parseProduct(doc.html, doc.url, id, op.meta.auth.state === "signed_in", sections.filter(section => section !== "reliability"));
-    if (sections.includes("reliability")) {
+    const htmlRatings = product.sections.ratings;
+    // Share the request, including its failure, while validating each optional
+    // section independently. Malformed complaint data must not erase valid ratings.
+    const statistics = sections.some(section => section === "ratings" || section === "reliability") ? this.reviewStatistics(reader, op, id, doc.html) : undefined;
+    for (const section of ["ratings", "reliability"] as const) if (sections.includes(section)) {
       try {
-        product.sections.reliability = parseReliability(await this.reviewStatistics(reader, op, id, doc.html));
+        const data = await statistics!;
+        product.sections[section] = section === "ratings"
+          ? { state: "available", data: { ...parseRatingSummary(data), html_aggregate: htmlRatings?.state === "available" ? htmlRatings.data : null } }
+          : parseReliability(data);
       } catch (error) {
-        const failure = failureOf(error, "reliability");
+        const failure = failureOf(error, section);
         if (!PARTIAL_ONLY.has(failure.code)) throw error;
-        log.warn("product.reliability_failed", { request_id: op.id, product_id: id, code: failure.code });
-        product.sections.reliability = { state: "failed", error: failure };
+        log.warn(`product.${section}_failed`, { request_id: op.id, product_id: id, code: failure.code });
+        product.sections[section] = { state: "failed", error: failure };
       }
     }
     const errors = Object.values(product.sections).flatMap(s => s?.state === "failed" ? [s.error] : []);

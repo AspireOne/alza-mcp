@@ -33,7 +33,7 @@ async function harness(pageHtml = html) {
   const captures: string[] = [];
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
-    if (url.pathname.endsWith('/reviewStats')) return route.fulfill({ json: { self: { href: 'https://webapi.alza.cz/api/catalog/v2/commodities/42/reviewStats' }, complaint: null } });
+    if (url.pathname.endsWith('/reviewStats')) return route.fulfill({ json: { self: { href: 'https://webapi.alza.cz/api/catalog/v2/commodities/42/reviewStats' }, ratingAverage: null, ratingCount: 0, reviewCount: 0, reviewCountTooltip: 'Written reviews including foreign reviews', ratings: [], complaint: null } });
     if (url.pathname.includes('-d42.htm')) productNavigations++;
     await route.fulfill({ contentType: 'text/html', body: pageHtml });
   });

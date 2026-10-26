@@ -30,3 +30,11 @@ and a coffee machine. They include zero, low, elevated, unknown, and absent comp
 data, plus new and opened headphone listings with shared statistics. Values are
 historical inputs, not current reliability claims. Failure cases mutate these
 captures; the page bootstrap and transport in the tests are synthetic.
+
+`rating-scope.json` retains the HTML aggregate and selected review-statistics fields
+for [Xiaomi Smart Air Purifier 4 Compact EU](https://www.alza.cz/product-d7383888.htm),
+captured on 2026-10-26. The HTML reports 34 written reviews; the API reports 48
+and 176 star ratings. The complete review response contained 34 Czech and 14
+Slovak country flags, all with `isTranslated: false`. The test reconstructs those
+counts with synthetic review text and identities; no customer text, authors,
+account context parameters or tokens are retained in the fixture.

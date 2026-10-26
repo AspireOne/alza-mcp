@@ -1,6 +1,6 @@
 import { load } from "cheerio";
 import { z } from "zod";
-import type { Complaint, Reliability, Section } from "../domain/contracts.js";
+import type { Complaint, RatingSummary, Reliability, Section } from "../domain/contracts.js";
 import { fail } from "../infra/failure.js";
 import { WEB_API } from "../infra/urls.js";
 import { object, pageData } from "./html.js";
@@ -12,6 +12,13 @@ const complaintSchema = z.object({
   tooltip: z.string().min(1),
 });
 const purchaseCountSchema = z.object({ purchaseCountFormatted: z.string().nullable(), showPurchaseCount: z.boolean() });
+const ratingSummarySchema = z.object({
+  ratingAverage: z.number().finite().min(0).max(5).nullable(),
+  ratingCount: z.number().int().nonnegative(),
+  reviewCount: z.number().int().nonnegative(),
+  reviewCountTooltip: z.string().nullable(),
+  ratings: z.array(z.object({ value: z.number().finite().min(0).max(5), count: z.number().int().nonnegative() }).passthrough()),
+});
 
 export function reviewStatisticsUrl(html: string, id: number): string {
   const $ = load(html);
@@ -54,8 +61,13 @@ export function parseReliability(data: Record<string, unknown>): Section<Reliabi
   return { state: "available", data: { complaint: assessment, ...count.data } };
 }
 
+export function parseRatingSummary(data: Record<string, unknown>): RatingSummary {
+  const parsed = ratingSummarySchema.safeParse(data);
+  if (!parsed.success) fail('SCHEMA_CHANGED', 'Review statistics changed shape.');
+  return { source: 'review_stats', ...parsed.data };
+}
+
 export function parseReviewStatistics(data: Record<string, unknown>) {
-  if (typeof data.ratingCount !== 'number' || !Array.isArray(data.ratings) || typeof data.reviewCount !== 'number') fail('SCHEMA_CHANGED', 'Review statistics changed shape.');
-  const { ratingAverage, ratingCount, reviewCount, reviewCountTooltip, recommendationRate, recommendationRateTooltip, ratings, purchaseCountFormatted, showPurchaseCount } = data;
-  return { ratingAverage, ratingCount, reviewCount, reviewCountTooltip, recommendationRate, recommendationRateTooltip, ratings, purchaseCountFormatted, showPurchaseCount, complaint: complaint(data) };
+  const { recommendationRate, recommendationRateTooltip, purchaseCountFormatted, showPurchaseCount } = data;
+  return { ...parseRatingSummary(data), recommendationRate, recommendationRateTooltip, purchaseCountFormatted, showPurchaseCount, complaint: complaint(data) };
 }

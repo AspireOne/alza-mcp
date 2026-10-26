@@ -47,6 +47,14 @@ export interface Reliability {
   purchaseCountFormatted: string | null;
   showPurchaseCount: boolean;
 }
+export interface RatingSummary {
+  source: "review_stats";
+  ratingAverage: number | null;
+  ratingCount: number;
+  reviewCount: number;
+  reviewCountTooltip: string | null;
+  ratings: Array<{ value: number; count: number }>;
+}
 export interface Offer {
   kind: "effective" | "public" | "conditional" | "reference";
   amount: string;
@@ -118,6 +126,7 @@ export interface Review {
   variant: string | null;
   verified_purchase: string | null;
   translated: boolean | null;
+  country_flag_url: string | null;
   helpful_count: number | null;
   images: unknown[];
   response: unknown;

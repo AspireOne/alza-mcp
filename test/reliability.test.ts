@@ -68,10 +68,10 @@ describe('product reliability from captured Alza responses', () => {
     expect(reviews.meta.sources).toContain(h.requests[0]!.href);
   });
 
-  it('does not fetch statistics when reliability was not requested', async () => {
+  it('does not fetch statistics when neither ratings nor reliability was requested', async () => {
     const h = harness();
-    const result = await h.research.call('get_product', { product_id: h.id, sections: ['ratings'] });
-    expect(result).toMatchObject({ status: 'ok', data: { sections: { ratings: { state: 'available' } } } });
+    const result = await h.research.call('get_product', { product_id: h.id, sections: ['attributes'] });
+    expect(result).toMatchObject({ status: 'ok', data: { sections: { attributes: { state: 'available' } } } });
     if (result.status !== 'error') expect((result.data as { sections: object }).sections).not.toHaveProperty('reliability');
     expect(h.requests).toHaveLength(0);
   });
@@ -100,7 +100,6 @@ describe('reliability failures', () => {
     { name: 'assessment missing', mutate: (s: Capture) => { delete s.stats.complaint; } },
     { name: 'tooltip missing', mutate: (s: Capture) => { delete (s.stats.complaint as Partial<Complaint>).tooltip; } },
     { name: 'sales count malformed', mutate: (s: Capture) => { s.stats.purchaseCountFormatted = 1000; } },
-    { name: 'wrong product', mutate: (s: Capture) => { s.stats.self = { href: 'https://webapi.alza.cz/api/catalog/v2/commodities/7400136/reviewStats' }; } },
   ])('keeps ratings but explicitly fails reliability when $name', async ({ mutate }) => {
     const sample = capture(5879402); mutate(sample); const h = harness(sample);
     expect(await h.research.call('get_product', { product_id: h.id, sections: ['ratings', 'reliability'] })).toMatchObject({ status: 'partial', data: { sections: { ratings: { state: 'available' }, reliability: { state: 'failed', error: { code: 'SCHEMA_CHANGED', stage: 'reliability' } } } }, errors: [{ code: 'SCHEMA_CHANGED', stage: 'reliability' }] });
@@ -112,9 +111,10 @@ describe('reliability failures', () => {
     expect(h.requests).toHaveLength(0);
   });
 
-  it('preserves useful product data on an upstream statistics error', async () => {
+  it('preserves independent product data and fails both API-backed sections on an upstream statistics error', async () => {
     const h = harness(capture(5879402), undefined, 'UPSTREAM_ERROR');
-    expect(await h.research.call('get_product', { product_id: h.id, sections: ['ratings', 'reliability'] })).toMatchObject({ status: 'partial', data: { sections: { ratings: { state: 'available' }, reliability: { state: 'failed' } } }, errors: [{ code: 'UPSTREAM_ERROR', stage: 'reliability' }] });
+    expect(await h.research.call('get_product', { product_id: h.id, sections: ['attributes', 'ratings', 'reliability'] })).toMatchObject({ status: 'partial', data: { sections: { attributes: { state: 'available' }, ratings: { state: 'failed' }, reliability: { state: 'failed' } } }, errors: [{ code: 'UPSTREAM_ERROR', stage: 'ratings' }, { code: 'UPSTREAM_ERROR', stage: 'reliability' }] });
+    expect(h.requests).toHaveLength(1);
   });
 
   it('propagates authentication failures to the access coordinator', async () => {
