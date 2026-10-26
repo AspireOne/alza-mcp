@@ -1,0 +1,41 @@
+# Requires Docker Compose 2.24.4+ for !override.
+services:
+  alza:
+    image: alza-mcp:local
+    environment:
+      PORT: ${ALZA_LOCAL_PORT:-3001}
+      ALZA_HTTP_AUTH: token
+      ALZA_MCP_TOKEN: ${ALZA_MCP_TOKEN:?Local bearer token is required}
+      ALZA_PUBLIC_URL: ""
+      ALZA_ACCESS_TEAM_DOMAIN: ""
+      ALZA_ACCESS_AUDIENCE: ""
+      ALZA_ACCESS_EMAIL: ""
+      ALZA_AUTH_MODE: required
+    ports: !override
+      - "127.0.0.1:${ALZA_LOCAL_PORT:-3001}:${ALZA_LOCAL_PORT:-3001}"
+  flaresolverr:
+    ports:
+      - "127.0.0.1:${ALZA_LOCAL_FLARE_PORT:-8191}:8191"
+  byparr:
+    ports:
+      - "127.0.0.1:${ALZA_LOCAL_BYPARR_PORT:-8192}:8191"
+  validation:
+    profiles: [validation]
+    network_mode: service:alza
+    depends_on:
+      - alza
+    build:
+      context: .
+      target: validation
+    image: alza-mcp:local-validation
+    user: "${ALZA_LOCAL_UID:-1000}:${ALZA_LOCAL_GID:-1000}"
+    environment:
+      ALZA_MCP_URL: http://localhost:${ALZA_LOCAL_PORT:-3001}/mcp
+      ALZA_MCP_TOKEN: ${ALZA_MCP_TOKEN:?Local bearer token is required}
+      ALZA_TEST_AUTH: required
+      ALZA_TEST_CATEGORY: ${ALZA_TEST_CATEGORY:-18845887}
+      ALZA_TEST_PRODUCT: ${ALZA_TEST_PRODUCT:-12611062}
+      ALZA_VALIDATION_REPORT: /reports/smoke.jsonl
+    volumes:
+      - ./.artifacts/local-stack/reports:/reports
+    command: ["--smoke"]

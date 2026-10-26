@@ -9,6 +9,8 @@ import type { Result, SearchPage, Product, ReviewsPage } from '../src/domain/con
 import { finishTrial, readChecks, SEVEN_DAYS_MS } from './validation-report.js';
 
 const soak = process.argv.includes('--soak');
+const smoke = process.argv.includes('--smoke');
+if (smoke && soak) throw new Error('Choose either --smoke or --soak.');
 const report = process.env.ALZA_VALIDATION_REPORT ?? '.artifacts/validation.jsonl';
 const categoryId = Number(process.env.ALZA_TEST_CATEGORY ?? 18845887), productId = Number(process.env.ALZA_TEST_PRODUCT ?? 12611062);
 const auth = process.env.ALZA_TEST_AUTH ?? 'anonymous';
@@ -17,7 +19,7 @@ const stopped = new AbortController();
 const start = process.env.ALZA_SOAK_STARTED_AT ? Date.parse(process.env.ALZA_SOAK_STARTED_AT) : Date.now();
 let aborted = false;
 const stop = () => stopped.abort();
-if (soak) { process.once('SIGTERM', stop); process.once('SIGINT', stop); }
+process.once('SIGTERM', stop); process.once('SIGINT', stop);
 let close: () => Promise<void> = async () => {};
 await mkdir(dirname(report), { recursive: true });
 try {
@@ -71,20 +73,24 @@ try {
   } else {
     await call('get_session_status', {});
     for (const check of checks) await check();
-    let next: string | null = null; const ids = new Set<number>();
-    do {
-      const page: SearchPage = await call('search_products', next ? { cursor: next } : searchArgs);
-      for (const item of page.products) { assert(!ids.has(item.id), 'Repeated product'); ids.add(item.id); }
-      next = page.next_cursor; if (!next) { assert.equal(page.exhausted, true); if (page.total !== null) assert.equal(ids.size, page.total); }
-    } while (next);
-    const reviewIds = new Set<string>(); let written = 0;
-    do {
-      const page: ReviewsPage = await call('get_product_reviews', next ? { cursor: next } : { product_id: productId, limit: 50, auth });
-      written += page.reviews.length;
-      for (const review of page.reviews) if (review.id) { assert(!reviewIds.has(review.id), 'Repeated review'); reviewIds.add(review.id); }
-      next = page.next_cursor; if (!next) { assert.equal(page.exhausted, true); assert.equal(written, page.written_review_count); }
-    } while (next);
-    console.log(`Validated all tools, ${ids.size} unique products and ${written} written reviews.`);
+    if (smoke) {
+      console.log('Validated all six tools with one page per search/review operation.');
+    } else {
+      let next: string | null = null; const ids = new Set<number>();
+      do {
+        const page: SearchPage = await call('search_products', next ? { cursor: next } : searchArgs);
+        for (const item of page.products) { assert(!ids.has(item.id), 'Repeated product'); ids.add(item.id); }
+        next = page.next_cursor; if (!next) { assert.equal(page.exhausted, true); if (page.total !== null) assert.equal(ids.size, page.total); }
+      } while (next);
+      const reviewIds = new Set<string>(); let written = 0;
+      do {
+        const page: ReviewsPage = await call('get_product_reviews', next ? { cursor: next } : { product_id: productId, limit: 50, auth });
+        written += page.reviews.length;
+        for (const review of page.reviews) if (review.id) { assert(!reviewIds.has(review.id), 'Repeated review'); reviewIds.add(review.id); }
+        next = page.next_cursor; if (!next) { assert.equal(page.exhausted, true); assert.equal(written, page.written_review_count); }
+      } while (next);
+      console.log(`Validated all tools, ${ids.size} unique products and ${written} written reviews.`);
+    }
   }
 } catch (error) {
   if (!soak) throw error;

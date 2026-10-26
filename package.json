@@ -17,7 +17,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --project tsconfig.check.json",
     "validate:api": "tsx scripts/validate-api.ts",
-    "validate:soak": "tsx scripts/validate-api.ts --soak"
+    "validate:soak": "tsx scripts/validate-api.ts --soak",
+    "stack:local": "node scripts/local-stack.mjs",
+    "validate:smoke": "tsx scripts/validate-api.ts --smoke"
   },
   "keywords": [
     "mcp",

@@ -37,6 +37,8 @@ export class SessionBrowser {
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
       this.context = await chromium.launchPersistentContext(this.store.profile(kind), {
         headless: this.config.headless, executablePath: this.config.executablePath, viewport: null,
+        // The application must finish request draining, log flushing and lease release before exiting.
+        handleSIGINT: false,
         locale: "cs-CZ", timezoneId: "Europe/Prague", timeout,
       });
       this.kind = kind;

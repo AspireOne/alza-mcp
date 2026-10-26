@@ -147,6 +147,7 @@ For a consistent backup, stop the application, archive the complete `/data` volu
 | `ALZA_ACCESS_EMAIL` | Required in Cloudflare Access mode | Email identity that the origin accepts. |
 | `ALZA_PUBLIC_URL` | Unset | Allowed public HTTPS origin. |
 | `PORT` | `3000` | HTTP listening port. |
+| `ALZA_HTTP_HOST` | `0.0.0.0` | HTTP bind address. The native local harness sets `127.0.0.1`. |
 | `ALZA_TRANSPORT` | stdio | Set `http`, or pass `--http`. |
 | `ALZA_FLARESOLVERR_URL` | Unset locally | Private solver URL; Compose configures it. |
 | `ALZA_BYPARR_URL` | Unset locally | Private final anonymous solver URL; Compose configures it. |

@@ -27,10 +27,11 @@ async function main(): Promise<void> {
     stopMemoryMonitor = startMemoryMonitor();
     if (values.http || process.env.ALZA_TRANSPORT === 'http') {
       const port = Number(process.env.PORT ?? '3000'); if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT.');
+      const host = process.env.ALZA_HTTP_HOST ?? '0.0.0.0';
       const auth = httpAuthFromEnv(process.env);
       const http = httpServer(application.research, { auth, publicUrl: process.env.ALZA_PUBLIC_URL, port });
-      await new Promise<void>((resolve, reject) => { http.server.once('error', reject); http.server.listen(port, '0.0.0.0', resolve); });
-      closeTransport = http.close; log.info('http.ready', { port, auth: auth.mode });
+      await new Promise<void>((resolve, reject) => { http.server.once('error', reject); http.server.listen(port, host, resolve); });
+      closeTransport = http.close; log.info('http.ready', { port, host, auth: auth.mode });
     } else {
       const server = createServer(application.research); await server.connect(new StdioServerTransport());
       closeTransport = () => server.close(); log.info('stdio.ready');

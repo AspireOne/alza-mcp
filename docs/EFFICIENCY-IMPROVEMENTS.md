@@ -2,7 +2,7 @@
 
 This is the canonical record of the browser/Docker efficiency investigation: requirements, evidence, experiments, unresolved questions, and the direction for further work. Update the relevant sections as findings change. Deployment and logging instructions belong in the [README](../README.md#configuration-and-local-development); architectural contracts belong in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-Last reconciled with the repository and a production log snapshot on 2026-10-26, including `f25433f` (`feat: add persistent logging`). Historical inspection and local experiments preceded that implementation; the logged shopping session below used the new logging.
+Last reconciled with the repository, local environment fixes, and a production log snapshot on 2026-10-26, including logging commit `f25433f` and efficiency commit `ab937bb`. Historical inspection and local experiments preceded that implementation; the logged shopping session below used the new logging.
 
 ## Goal and constraints
 
@@ -124,7 +124,7 @@ The host failure was more than waiting for optional images: parsing had not prod
 
 Network probes found that `www.googleoptimize.com` resolved to `0.0.0.0`/`::` in both environments. IPv4 connections hung on the host but were immediately refused in Docker. Host loopback connections to ports 80/443 also timed out despite no listeners; Docker refused them immediately. The tested CDN origins had matching DNS results and working IPv4 TLS/HTTP paths.
 
-A sinkholed script blocking parsing is a plausible explanation, not proven causation: script ordering was not captured. CDN root responses do not prove delivery of the actual script resources. No host network configuration was changed. Local Docker browsing worked, while the native-host issue remained unresolved.
+The initial probes suggested a sinkholed script blocking parsing but did not prove causation. CDN root responses did not prove delivery of the actual script resources. A later causal experiment and local environment adaptation resolved the native-host stall; see [Local testing environment](#local-testing-environment).
 
 ### Navigation, tab reuse, and useful readiness
 
@@ -171,6 +171,24 @@ For storage, rotation, retrieval, event fields, metric scope, and limitations, u
 
 One discrepancy remains explicit: the earlier conversation requested resource sampling only during active requests, with no idle polling. The current implementation also samples at startup and every 10 seconds while idle. Record this for reconciliation; documenting it here does not change the implementation or imply acceptance of the difference.
 
+## Local testing environment
+
+A repeatable harness now runs the production Compose stack locally, with required account verification, separate persistent state, generated private credentials, and loopback-only application/solver access. Native execution uses a separate profile and the same solver services. The native listener is explicitly bound to loopback; production's default bind behavior is unchanged. Setup, commands, ports and credential handling belong in [CONTRIBUTING.md](../CONTRIBUTING.md#local-docker-stack).
+
+The local Docker and native profiles were seeded from the production account's saved portable Alza session export. This was a read-only transfer: the running Pi browser/database and services were not changed. Both profiles independently validated the expected account. Exports and account metadata remain private under Git-ignored `.artifacts/`; no account IDs or credentials are stored in this document.
+
+Live HTTP smoke checks passed all six tools in Docker and natively. Every data call verified signed-in authentication; the local status tool intentionally does not verify a session. The smoke mode limits search/review calls to one page each; the original fuller validator and deterministic pagination tests remain available. Actual pinned FlareSolverr access verified the signed-in account, and actual Byparr access verified an anonymous page. No CAPTCHA challenge occurred, so these checks establish service integration rather than guaranteed challenge-solving success.
+
+The signed-in Docker smoke check passed again after container replacement. A subsequent full product read passed with the application limit set to the inspected Pi's 1.5 GiB; the profile was not reimported. Native signed-in access also survived server restart. Persistent local logs and profiles remain separate from production.
+
+A lifecycle check uncovered Patchright's default SIGINT handler forcing exit 130 after browser launch, racing application cleanup. The managed browser now disables that handler so the application owns request draining, browser close, log flushing and lease release. A subprocess test with actual Chromium verifies post-browser cleanup and lock removal; restoring the default handler makes it fail. The complete suite now passes 125 tests.
+
+The native stall was traced to two already-blocked analytics names: `www.googleoptimize.com` and `static.cloudflareinsights.com`. They resolved to `0.0.0.0`/`::`; WSL mirrored networking converted IPv4 connections to a Windows-forwarded localhost path that hung. Temporarily failing the Google Optimize request let parsing proceed, while Cloudflare Insights remained pending. A packet-filter experiment matching destination zero had no effect because the kernel had already normalized the destination; its temporary rules were removed.
+
+The machine-local adaptation maps only names still confirmed as DNS sinkholes to non-forwarded `127.0.0.2`. A guarded boot service checks upstream A/AAAA answers directly, removes mappings for names that become routable, preserves unrelated hosts entries, and leaves hosts unchanged on DNS errors. Windows firewall, global DNS configuration, routing, WSL networking mode and browser flags were not changed. Two fresh native headed runs then completed full load in 2.84 and 2.62 seconds, with recognized bootstrap and no request interception. This preserves existing DNS blocks; it does not repair the underlying WSL bug.
+
+The service start/restart and offline reconciliation tests passed. An actual WSL reboot has not been performed because it would interrupt the user's session. Local evidence and rollback instructions are under `.artifacts/local-environment/`; signed-in smoke reports are under `.artifacts/local-stack/reports/`. These contain machine-local evidence and are not committed.
+
 ## Optimization direction and validation
 
 Prioritize changes that remove known extra work while preserving the successful access/recovery architecture:
@@ -184,7 +202,7 @@ Prioritize changes that remove known extra work while preserving the successful 
 
 Keep automatic solvers and their eligibility rules until a replacement is demonstrated to preserve unattended, signed-in success. Their existing HTTP APIs own separate browsers; neither is a drop-in controller for the primary Patchright tab. A successful solver response does not by itself establish that the primary session was repaired or that subsequent requests will succeed.
 
-Validation must cover expired/wrong-account sessions on cache hits, JSON-first verification, incomplete required content, partial-then-full product cache use, statistics identity/context, challenge recovery, timeouts, cancellation, crashes, and persistence across restart. Local execution must be reproducible; the working Docker path is available while the native-host networking issue remains open.
+Validation must cover expired/wrong-account sessions on cache hits, JSON-first verification, incomplete required content, partial-then-full product cache use, statistics identity/context, challenge recovery, timeouts, cancellation, crashes, and persistence across restart. Local execution is now reproducible through the Docker/native harness above; the remaining environmental check is service behavior after a real WSL reboot.
 
 The existing deployment can serve as the comparison baseline without deploying another baseline stack. If a candidate warrants a 48-hour pilot, use bounded realistic shopping bursts, isolated writable profiles, and signed-in semantic assertions. Report complete shopping-session success, latency, unresolved challenges, recovery recurrence, and resources. Do not count anonymous fallback or human repair as success. A clean 48-hour run is useful confirmation, not proof of long-term CAPTCHA immunity.
 
@@ -209,7 +227,7 @@ The cold prices call improved by about 53%. The richer request was cached in the
 
 The six-call comparison is a small anonymous sample, not signed-in Pi performance evidence. Initial cgroup charges differed between runs, so lower candidate memory readings do not establish a reliable savings percentage. Benchmark artifacts are under Git-ignored `.artifacts/efficiency-benchmark/`. The subsequent full-cache-reuse cleanup did not affect this benchmark's narrow-first call sequence.
 
-Validation passed 124 tests, including isolated real-Chromium fixtures, expanded typechecking, the production build, and a dependency audit with zero vulnerabilities. Removing fresh cache authentication temporarily caused the intended regression tests to fail; the mutation was restored. Independent functional and quality reviews found no remaining actionable issues. The final Docker image built successfully; its HTTP health, authorization, tool discovery, local status, missing-account rejection, and headed Chromium display checks passed. Production has not been redeployed or benchmarked with these changes.
+Validation passed 124 tests, including isolated real-Chromium fixtures, expanded typechecking, the production build, and a dependency audit with zero vulnerabilities. Removing fresh cache authentication temporarily caused the intended regression tests to fail; the mutation was restored. Independent functional and quality reviews found no remaining actionable issues. The final Docker image built successfully; its HTTP health, authorization, tool discovery, local status, missing-account rejection, and headed Chromium display checks passed. No Pi performance benchmark of these changes has been performed; deployment state after the push was not verified during this investigation.
 
 The cheaper native-fetch identity check remains experimental; it was not substituted for rendered identity verification. Navigation still waits for full load, and solver order/budgets, serialization, and memory limits are unchanged. Review-statistics context reuse and bounded concurrency remain later work.
 
