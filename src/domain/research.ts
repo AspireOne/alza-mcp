@@ -7,7 +7,7 @@ import { Cursors } from "../infra/cursor.js";
 import { TtlCache } from "../infra/cache.js";
 import { fail, failureOf } from "../infra/failure.js";
 import { BASE_URL, FILTER_PATH, productId, productUrl } from "../infra/urls.js";
-import { categories, facets, manufacturers, sortOrders, filterRequest, parseFilter, parseRenderedSearch, searchUrl } from "../adapters/catalog.js";
+import { categories, categoryIdentity, facets, manufacturers, sortOrders, filterRequest, parseFilter, parseRenderedSearch, searchUrl } from "../adapters/catalog.js";
 import { parseProduct } from "../adapters/product.js";
 import { parseReviews, reviewUrl } from "../adapters/reviews.js";
 import { parseReliability, parseReviewStatistics, reviewStatisticsUrl, validateReviewStatistics } from "../adapters/review-statistics.js";
@@ -68,7 +68,11 @@ export class Research {
           case "get_category": return { data: await this.cached(reader, op, `category:${args.category_id}`, 86_400_000, async () => {
             const doc = await reader.page(searchUrl({ category_id: args.category_id as number }));
             const $ = load(doc.html);
-            if (pageData($).categoryId !== args.category_id) fail("CATEGORY_ID_MISMATCH", "The page does not describe the requested category.");
+            const observed = categoryIdentity($);
+            if (observed !== args.category_id) {
+              log.warn("category.identity_mismatch", { request_id: op.id, requested_category_id: args.category_id, observed_category_id: observed, path: new URL(doc.url).pathname });
+              fail("CATEGORY_ID_MISMATCH", "The page does not describe the requested category.");
+            }
             const sorts = sortOrders($);
             return { id: args.category_id, name: $("h1").first().text().trim(), url: doc.url, children: categories($, true), facets: facets($), manufacturers: manufacturers($), sort_orders: sorts, listing_supported: sorts.length > 0 };
           }) };
@@ -117,9 +121,10 @@ export class Research {
         return { products: [], total: 0, next: false, effectiveUrl: doc.url, sorts };
       }
       if (!sorts.length && !$(".browsingitem").length && $('[data-testid="category-tiles"]').length) {
-        const suggested = categories($, true);
-        if (typeof bootstrap.categoryId !== "number" || !suggested.length) fail("SCHEMA_CHANGED", "Alza's category navigation could not be identified.");
-        fail("CATEGORY_NOT_LISTABLE", "Alza redirected this search to a category hub without product listings. Search a child category instead.", { category_id: bootstrap.categoryId, suggested_categories: suggested });
+        const id = categoryIdentity($), suggested = categories($, true);
+        if (!id || !suggested.length) fail("SCHEMA_CHANGED", "Alza's category navigation could not be identified.");
+        if (query.category_id && query.category_id !== id) fail("CATEGORY_ID_MISMATCH", "The page does not describe the requested category.");
+        fail("CATEGORY_NOT_LISTABLE", "Alza redirected this search to a category hub without product listings. Search a child category instead.", { category_id: id, suggested_categories: suggested });
       }
       const body = filterRequest($, query, page), effectiveUrl = `${doc.url.split("#")[0]}${body.hash}`;
       const signedIn = op.meta.auth.state === 'signed_in';

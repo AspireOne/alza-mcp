@@ -16,6 +16,27 @@ export function searchUrl(query: SearchQuery): string {
   }
   return `${BASE_URL}/${query.category_id}.htm`;
 }
+export function categoryIdentity(html: HtmlSource): number | null {
+  const $ = htmlDocument(html), bootstrap = pageData($).categoryId;
+  const ids = new Set<number>();
+  for (const el of $('[data-testid="component-catalogLocalTitlePage"][data-api-url]').toArray()) {
+    let url: URL;
+    try { url = new URL($(el).attr('data-api-url')!, BASE_URL); }
+    catch { return fail('SCHEMA_CHANGED', 'The category landing-page identity is malformed.'); }
+    const match = url.pathname.match(/^\/api\/catalog\/v2\/homePage\/categories\/(\d+)\/categories$/);
+    const id = Number(match?.[1]);
+    if (url.origin !== BASE_URL || url.username || url.password || !match || !Number.isSafeInteger(id) || id <= 0) fail('SCHEMA_CHANGED', 'The category landing-page identity was not recognized.');
+    ids.add(id);
+  }
+  if (ids.size) {
+    const id = [...ids][0]!;
+    // These hubs use the generic bootstrap ID 1; the scoped component identifies
+    // the actual navigation category. Contradictory identities are never aliases.
+    if (ids.size !== 1 || bootstrap !== 1 && bootstrap !== id) fail('CATEGORY_ID_MISMATCH', 'The page contains conflicting category identities.');
+    return id;
+  }
+  return typeof bootstrap === 'number' && Number.isSafeInteger(bootstrap) && bootstrap > 0 ? bootstrap : null;
+}
 export function categories(html: HtmlSource, children = false): Category[] {
   const $ = htmlDocument(html), found = new Map<number, Category>();
   const selectors = children ? '[data-testid="category-tile"] a, .category-tiles__categories a, .subCategoriesList a, .subCategories a, .subcategory a, [class*=subcategory] a' : 'li[class*="category-naviga"] a, .category-tree a, .subCategoriesList a';
