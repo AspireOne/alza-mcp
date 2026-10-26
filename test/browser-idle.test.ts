@@ -8,6 +8,7 @@ import { configFromEnv } from '../src/infra/config.js';
 import { StateStore } from '../src/infra/state.js';
 import { Operation } from '../src/infra/operation.js';
 import { Research } from '../src/domain/research.js';
+import { browserCatalog } from '../src/domain/browser-catalog.js';
 import { Cursors } from '../src/infra/cursor.js';
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -62,7 +63,7 @@ it('resets inactivity on research, ignores status polling, and reopens after evi
   expect(h.closed).not.toHaveBeenCalled();
   await h.run();
   await vi.advanceTimersByTimeAsync(99);
-  const research = new Research(h.config, h.access, new Cursors(h.store.key));
+  const research = new Research(h.config, h.access, browserCatalog, new Cursors(h.store.key));
   expect(await research.call('get_session_status', {})).toMatchObject({ status: 'ok', data: { browser: { running: true } } });
   expect(h.closed).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1);

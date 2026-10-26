@@ -1,7 +1,7 @@
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { createServer } from "./server.js";
-import type { Research } from "./domain/research.js";
+import type { ResearchService } from "./domain/research.js";
 import { randomUUID } from "node:crypto";
 import { memorySnapshot } from "./infra/memory.js";
 import { log, withLogContext } from "./infra/logger.js";
@@ -10,7 +10,7 @@ import { createHttpAuthorizer, type HttpAuth } from './http-auth.js';
 
 const MAX_BODY = 1_048_576;
 export interface HttpOptions { auth: HttpAuth; publicUrl?: string; port?: number; host?: string }
-export function httpServer(research: Research, options: HttpOptions) {
+export function httpServer(research: ResearchService, options: HttpOptions) {
   const authorize = createHttpAuthorizer(options.auth);
   if (options.auth.mode === 'cloudflare-access' && !options.publicUrl) fail('CONFIGURATION_ERROR', 'ALZA_PUBLIC_URL is required for Cloudflare Access.');
   const origins = new Set([`http://localhost:${options.port ?? 3000}`, `http://127.0.0.1:${options.port ?? 3000}`]);

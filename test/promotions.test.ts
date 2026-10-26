@@ -6,6 +6,7 @@ import { parseProduct } from '../src/adapters/product.js';
 import { parseFilter, parseRenderedSearch } from '../src/adapters/catalog.js';
 import type { Offer } from '../src/domain/contracts.js';
 import { Research } from '../src/domain/research.js';
+import { browserCatalog } from '../src/domain/browser-catalog.js';
 import { configFromEnv } from '../src/infra/config.js';
 import { Cursors } from '../src/infra/cursor.js';
 import type { Access, Reader } from '../src/infra/reader.js';
@@ -138,7 +139,7 @@ describe('promotion research responses', () => {
       json: async () => ({ d: { Boxes: cards, Count: 4, Page: 1, PagerBottom: '' } }),
     };
     const access: Access = { run: async (op, work) => { op.meta.auth.state = 'signed_in'; return work(reader); }, status: () => ({}), close: async () => {} };
-    return new Research(config, access, new Cursors('x'.repeat(64)));
+    return new Research(config, access, browserCatalog, new Cursors('x'.repeat(64)));
   }
 
   it('exposes regular and coupon prices through both tools and cached responses under preferred auth', async () => {

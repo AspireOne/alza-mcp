@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Research } from '../src/domain/research.js';
+import { browserCatalog } from '../src/domain/browser-catalog.js';
 import { configFromEnv } from '../src/infra/config.js';
 import { Cursors } from '../src/infra/cursor.js';
 import { SessionBrowser } from '../src/infra/session-browser.js';
@@ -46,7 +47,7 @@ async function harness(pageHtml = html) {
     },
     status: () => ({}), close: () => browser.close(),
   };
-  return { research: new Research(config, access, new Cursors('x'.repeat(64))), productNavigations: () => productNavigations, captures };
+  return { research: new Research(config, access, browserCatalog, new Cursors('x'.repeat(64))), productNavigations: () => productNavigations, captures };
 }
 
 it('reads offers without loading lazy sections, then still returns complete default sections', async () => {

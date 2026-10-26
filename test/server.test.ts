@@ -5,10 +5,11 @@ import { Client, InMemoryTransport, StreamableHTTPClientTransport } from '@model
 import { createServer } from '../src/server.js';
 import { httpServer } from '../src/http.js';
 import { Research } from '../src/domain/research.js';
+import { browserCatalog } from '../src/domain/browser-catalog.js';
 import { Cursors } from '../src/infra/cursor.js';
 import { configFromEnv } from '../src/infra/config.js';
 import { fail } from '../src/infra/failure.js';
-const research = () => new Research(configFromEnv({}), { run: async () => fail('CHALLENGE_UNRESOLVED', 'Challenge recovery exhausted.', { retryable: true }), status: () => ({ account_configured: false }), close: async () => {} }, new Cursors('x'.repeat(64)));
+const research = () => new Research(configFromEnv({}), { run: async () => fail('CHALLENGE_UNRESOLVED', 'Challenge recovery exhausted.', { retryable: true }), status: () => ({ account_configured: false }), close: async () => {} }, browserCatalog, new Cursors('x'.repeat(64)));
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
@@ -83,7 +84,7 @@ describe('MCP wire contracts', () => {
         op.check();
         fail('CHALLENGE_UNRESOLVED', 'Cancelled operation must not complete.');
       },
-    }, new Cursors('x'.repeat(64)));
+    }, browserCatalog, new Cursors('x'.repeat(64)));
     const server = createServer(service), client = new Client({ name: 'cancellation-test', version: '1' });
     const [a, b] = InMemoryTransport.createLinkedPair();
     await server.connect(a); await client.connect(b);
@@ -107,7 +108,7 @@ it('accepts concurrent stateless calls with the same JSON-RPC ID without cross-c
   const service = new Research(config, { status: () => ({}), close: async () => {}, run: async op => {
     if (++active === 2) started();
     await gate; op.check(); fail('CHALLENGE_UNRESOLVED', 'Controlled test failure.');
-  } }, new Cursors('x'.repeat(64)));
+  } }, browserCatalog, new Cursors('x'.repeat(64)));
   const http = httpServer(service, { auth: { mode: 'token', token: 't'.repeat(40) } }); await new Promise<void>(r => http.server.listen(0, '127.0.0.1', r)); cleanups.push(http.close);
   const url = `http://127.0.0.1:${(http.server.address() as { port: number }).port}/mcp`;
   const headers = { authorization: `Bearer ${'t'.repeat(40)}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' };

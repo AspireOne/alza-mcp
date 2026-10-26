@@ -6,6 +6,7 @@ import { SessionBrowser } from '../src/infra/session-browser.js';
 import { StateStore } from '../src/infra/state.js';
 import { configFromEnv } from '../src/infra/config.js';
 import { Research } from '../src/domain/research.js';
+import { browserCatalog } from '../src/domain/browser-catalog.js';
 import { Cursors } from '../src/infra/cursor.js';
 import type { Access } from '../src/infra/reader.js';
 
@@ -43,7 +44,7 @@ it('waits for asynchronous navigation tiles before returning a landing category'
     const resource = await browser.reader(op, 'anonymous', Date.now() + 20_000);
     try { return await work(resource.reader); } finally { await resource.dispose(); }
   }, status: () => ({}), close: () => browser.close() };
-  const research = new Research(config, access, new Cursors('x'.repeat(64)));
+  const research = new Research(config, access, browserCatalog, new Cursors('x'.repeat(64)));
   let settled = false;
   const result = research.call('get_category', { category_id: 18901355 }).then(value => { settled = true; return value; });
   await waiting.promise;

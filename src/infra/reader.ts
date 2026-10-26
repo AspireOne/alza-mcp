@@ -8,17 +8,20 @@ export interface Document {
   headers: Record<string, string>;
 }
 export type DetailSection = "description" | "specifications" | "variants";
-export interface Reader {
+/** What shared research logic needs from any backend's per-operation data access. */
+export interface Source {
   readonly provider: Provider;
-  readonly canPost: boolean;
   readonly context: string;
-  page(url: string, options?: { detail?: readonly DetailSection[]; stock?: boolean; category?: boolean }): Promise<Document>;
   json(url: string, body?: unknown): Promise<unknown>;
-  // Lazy readers must freshly verify this operation before a cache-only result is used.
+  // Lazy sources must freshly verify this operation before a cache-only result is used.
   verify?(): Promise<void>;
 }
-export interface Access {
-  run<T>(op: Operation, work: (reader: Reader) => Promise<T>, expectedContext?: string): Promise<T>;
+export interface Reader extends Source {
+  readonly canPost: boolean;
+  page(url: string, options?: { detail?: readonly DetailSection[]; stock?: boolean; category?: boolean }): Promise<Document>;
+}
+export interface Access<S extends Source = Reader> {
+  run<T>(op: Operation, work: (source: S) => Promise<T>, expectedContext?: string): Promise<T>;
   status(): unknown;
   close(): Promise<void>;
 }

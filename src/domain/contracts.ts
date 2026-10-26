@@ -81,6 +81,7 @@ export interface Listing {
 }
 export interface Facet { id: number; name: string; kind: "enum" | "range"; values: Array<{ id: string; label: string; count: number | null; numeric_value?: number }> }
 export interface Category { id: number; name: string; url: string }
+export interface CategoryDetail { id: number; name: string; url: string; children: Category[]; facets: Facet[]; manufacturers: Array<{ id: number; name: string }>; sort_orders: Sort[]; listing_supported: boolean }
 export interface SearchFilters {
   min_price?: number;
   max_price?: number;

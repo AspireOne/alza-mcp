@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { Research } from '../src/domain/research.js';
+import { browserCatalog } from '../src/domain/browser-catalog.js';
 import { configFromEnv } from '../src/infra/config.js';
 import { Cursors } from '../src/infra/cursor.js';
 import type { Access, Reader } from '../src/infra/reader.js';
@@ -21,7 +22,7 @@ function harness(override?: string) {
     }, json: async () => { throw new Error('Navigation hubs must not issue filter requests'); },
   };
   const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; return work(reader); }, status: () => ({}), close: async () => {} };
-  return new Research(configFromEnv({}), access, new Cursors('x'.repeat(64)));
+  return new Research(configFromEnv({}), access, browserCatalog, new Cursors('x'.repeat(64)));
 }
 
 it('resolves advertised navigation IDs through their landing-page components and retains child categories', async () => {

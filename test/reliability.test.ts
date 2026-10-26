@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { Research } from '../src/domain/research.js';
+import { browserCatalog } from '../src/domain/browser-catalog.js';
 import { configFromEnv } from '../src/infra/config.js';
 import { Cursors } from '../src/infra/cursor.js';
 import { fail } from '../src/infra/failure.js';
@@ -32,7 +33,7 @@ function harness(sample = capture(5879402), html?: string, upstreamError?: strin
     },
   };
   const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; sources = op.meta.sources; return work(reader); }, status: () => ({}), close: async () => {} };
-  return { research: new Research(configFromEnv({}), access, new Cursors('x'.repeat(64))), requests, id: sample.id };
+  return { research: new Research(configFromEnv({}), access, browserCatalog, new Cursors('x'.repeat(64))), requests, id: sample.id };
 }
 
 describe('product reliability from captured Alza responses', () => {

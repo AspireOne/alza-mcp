@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { Research } from '../src/domain/research.js';
+import { browserCatalog } from '../src/domain/browser-catalog.js';
 import { Cursors } from '../src/infra/cursor.js';
 import { configFromEnv } from '../src/infra/config.js';
 import type { Access, Reader, Document } from '../src/infra/reader.js';
@@ -21,7 +22,7 @@ function harness(stats = structuredClone(capture.stats), htmlAggregate: unknown 
       return { paging: { size: 48, limit, next: offset + limit < 48 ? { href: `https://webapi.alza.cz/api/catalog/v2/commodities/${capture.id}/reviews?offset=${offset + limit}&limit=${limit}` } : null }, value: reviews.slice(offset, offset + limit) };
     } };
   const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; return work(reader); }, status: () => ({}), close: async () => {} };
-  return { research: new Research(configFromEnv({}), access, new Cursors('x'.repeat(64))), requests };
+  return { research: new Research(configFromEnv({}), access, browserCatalog, new Cursors('x'.repeat(64))), requests };
 }
 
 it('shares API-backed rating counts without losing the smaller HTML observation or foreign reviews', async () => {

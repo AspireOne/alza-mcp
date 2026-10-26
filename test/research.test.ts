@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Research } from '../src/domain/research.js';
+import { Research, type ResearchService } from '../src/domain/research.js';
+import { browserCatalog } from '../src/domain/browser-catalog.js';
 import { configFromEnv } from '../src/infra/config.js';
 import { Cursors } from '../src/infra/cursor.js';
 import type { Access, Reader } from '../src/infra/reader.js';
@@ -19,9 +20,9 @@ function harness(pages: Array<{ ids: number[]; total: number; next: boolean }>, 
     return { d: { Count: p.total, Page: i + 1, Boxes: p.ids.map(card).join(''), PagerBottom: p.next ? '<a class="next"></a>' : '' } };
   } };
   const access: Access = { run: async <T>(op: Operation, work: (r: Reader) => Promise<T>, context?: string) => { checks++; if (context && context !== reader.context) fail('CONTEXT_CHANGED', 'changed'); if (!authenticated) fail('AUTH_REQUIRED', 'expired'); op.meta.auth.state = 'signed_in'; return work(reader); }, status: () => ({}), close: async () => {} };
-  return { research: new Research(configFromEnv({}), access, new Cursors('x'.repeat(64))), requests, pageOptions, expire: () => { authenticated = false; }, checks: () => checks };
+  return { research: new Research(configFromEnv({}), access, browserCatalog, new Cursors('x'.repeat(64))), requests, pageOptions, expire: () => { authenticated = false; }, checks: () => checks };
 }
-const okData = (result: Awaited<ReturnType<Research['call']>>): any => { expect(result.status).not.toBe('error'); return 'data' in result ? result.data : undefined; };
+const okData = (result: Awaited<ReturnType<ResearchService['call']>>): any => { expect(result.status).not.toBe('error'); return 'data' in result ? result.data : undefined; };
 
 describe('research traversal contracts', () => {
   it('accepts a confirmed empty search even when Alza omits sorting controls', async () => {

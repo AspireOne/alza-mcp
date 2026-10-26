@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { Research } from '../src/domain/research.js';
+import { browserCatalog } from '../src/domain/browser-catalog.js';
 import type { Access, Reader } from '../src/infra/reader.js';
 import { configFromEnv } from '../src/infra/config.js';
 import { Cursors } from '../src/infra/cursor.js';
@@ -29,7 +30,7 @@ it('logs one correlated terminal outcome for success, partial results, and inval
     json: async () => ({ d: { Count: 2, Page: 1, Boxes: '<div class="browsingitem" data-id="1"><a class="name" href="/disk-d1.htm">Disk</a><div class="price"><span class="js-price-box__primary-price__value">100,-</span></div></div>', PagerBottom: '' } }),
   };
   const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; return work(reader); }, status: () => ({}), close: async () => {} };
-  const research = new Research(configFromEnv({}), access, new Cursors('x'.repeat(64)));
+  const research = new Research(configFromEnv({}), access, browserCatalog, new Cursors('x'.repeat(64)));
   const results = await withLogContext({ http_request_id: 'transport-1' }, async () => [
     await research.call('get_session_status', {}),
     await research.call('search_products', { query: 'private-search' }),

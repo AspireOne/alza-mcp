@@ -7,6 +7,7 @@ import { configFromEnv } from '../src/infra/config.js';
 import { StateStore } from '../src/infra/state.js';
 import { AccessCoordinator } from '../src/infra/access.js';
 import { Research } from '../src/domain/research.js';
+import { browserCatalog } from '../src/domain/browser-catalog.js';
 import { Cursors } from '../src/infra/cursor.js';
 import { Operation } from '../src/infra/operation.js';
 import { parseProduct } from '../src/adapters/product.js';
@@ -56,7 +57,7 @@ async function setup() {
     await Promise.all(resources.map(resource => resource.dispose()));
     operations.forEach(op => op.dispose());
   });
-  const research = new Research(config, access, new Cursors(store.key));
+  const research = new Research(config, access, browserCatalog, new Cursors(store.key));
   const hold = (kind: Kind, id: number) => {
     const held = { arrived: gate(), finish: gate() };
     holds.set(`${kind}:${id}`, held);
