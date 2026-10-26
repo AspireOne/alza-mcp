@@ -4,7 +4,7 @@ import type { Config } from "./config.js";
 import { fail, failureOf, FailureError, retryAfterMs, SWITCH_HINT } from "./failure.js";
 import { log } from "./logger.js";
 import type { Operation } from "./operation.js";
-import type { Access, Source } from "./reader.js";
+import type { Access, AccessStatus, Source } from "./reader.js";
 import type { StateStore } from "./state.js";
 import { APP_USER_AGENT, ApiSession } from "./api-session.js";
 import type { RawResponse, Transport } from "./api-transport.js";
@@ -137,7 +137,7 @@ export class ApiAccess implements Access<ApiSource> {
     this.lastFailure = null;
     return result;
   }
-  status(): Record<string, unknown> {
+  status(): AccessStatus {
     return { account_configured: !!this.session, access_token_expires_at: this.session?.expiresAt ?? null, active_requests: this.active.size, last_failure: this.lastFailure };
   }
   close(beforeRelease?: () => Promise<void>): Promise<void> {

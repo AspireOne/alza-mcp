@@ -138,7 +138,7 @@ describe('promotion research responses', () => {
       page: async target => ({ url: target, html: target.includes('-d12662568.htm') ? couponDetail : '<script>var _pageData={"isUserLogged":true,"categoryId":18862691,"data":{"categoryTypeId":1,"searchTerm":"magnesium"}};</script><a data-sort="0"></a>', status: 200, headers: {} }),
       json: async () => ({ d: { Boxes: cards, Count: 4, Page: 1, PagerBottom: '' } }),
     };
-    const access: Access = { run: async (op, work) => { op.meta.auth.state = 'signed_in'; return work(reader); }, status: () => ({}), close: async () => {} };
+    const access: Access = { run: async (op, work) => { op.meta.auth.state = 'signed_in'; return work(reader); }, status: () => ({ account_configured: false, active_requests: 0, last_failure: null }), close: async () => {} };
     return new Research(config, access, browserCatalog, new Cursors('x'.repeat(64)));
   }
 

@@ -19,7 +19,7 @@ function harness(pages: Array<{ ids: number[]; total: number; next: boolean }>, 
     requests.push(body); const i = (body as {page: number}).page - 1, p = pages[i]!;
     return { d: { Count: p.total, Page: i + 1, Boxes: p.ids.map(card).join(''), PagerBottom: p.next ? '<a class="next"></a>' : '' } };
   } };
-  const access: Access = { run: async <T>(op: Operation, work: (r: Reader) => Promise<T>, context?: string) => { checks++; if (context && context !== reader.context) fail('CONTEXT_CHANGED', 'changed'); if (!authenticated) fail('AUTH_REQUIRED', 'expired'); op.meta.auth.state = 'signed_in'; return work(reader); }, status: () => ({}), close: async () => {} };
+  const access: Access = { run: async <T>(op: Operation, work: (r: Reader) => Promise<T>, context?: string) => { checks++; if (context && context !== reader.context) fail('CONTEXT_CHANGED', 'changed'); if (!authenticated) fail('AUTH_REQUIRED', 'expired'); op.meta.auth.state = 'signed_in'; return work(reader); }, status: () => ({ account_configured: false, active_requests: 0, last_failure: null }), close: async () => {} };
   return { research: new Research(configFromEnv({}), access, browserCatalog, new Cursors('x'.repeat(64))), requests, pageOptions, expire: () => { authenticated = false; }, checks: () => checks };
 }
 const okData = (result: Awaited<ReturnType<ResearchService['call']>>): any => { expect(result.status).not.toBe('error'); return 'data' in result ? result.data : undefined; };

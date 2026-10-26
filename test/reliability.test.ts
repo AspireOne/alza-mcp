@@ -32,7 +32,7 @@ function harness(sample = capture(5879402), html?: string, upstreamError?: strin
       throw new Error('Unexpected request');
     },
   };
-  const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; sources = op.meta.sources; return work(reader); }, status: () => ({}), close: async () => {} };
+  const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; sources = op.meta.sources; return work(reader); }, status: () => ({ account_configured: false, active_requests: 0, last_failure: null }), close: async () => {} };
   return { research: new Research(configFromEnv({}), access, browserCatalog, new Cursors('x'.repeat(64))), requests, id: sample.id };
 }
 

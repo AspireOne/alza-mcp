@@ -21,7 +21,7 @@ function harness(override?: string) {
       return { url: new URL(url).pathname === '/' ? url : hub.url, html, headers: {}, status: 200 };
     }, json: async () => { throw new Error('Navigation hubs must not issue filter requests'); },
   };
-  const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; return work(reader); }, status: () => ({}), close: async () => {} };
+  const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; return work(reader); }, status: () => ({ account_configured: false, active_requests: 0, last_failure: null }), close: async () => {} };
   return new Research(configFromEnv({}), access, browserCatalog, new Cursors('x'.repeat(64)));
 }
 

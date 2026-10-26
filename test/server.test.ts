@@ -9,7 +9,7 @@ import { browserCatalog } from '../src/domain/browser-catalog.js';
 import { Cursors } from '../src/infra/cursor.js';
 import { configFromEnv } from '../src/infra/config.js';
 import { fail } from '../src/infra/failure.js';
-const research = () => new Research(configFromEnv({}), { run: async () => fail('CHALLENGE_UNRESOLVED', 'Challenge recovery exhausted.', { retryable: true }), status: () => ({ account_configured: false }), close: async () => {} }, browserCatalog, new Cursors('x'.repeat(64)));
+const research = () => new Research(configFromEnv({}), { run: async () => fail('CHALLENGE_UNRESOLVED', 'Challenge recovery exhausted.', { retryable: true }), status: () => ({ account_configured: false, active_requests: 0, last_failure: null }), close: async () => {} }, browserCatalog, new Cursors('x'.repeat(64)));
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
@@ -23,6 +23,7 @@ describe('MCP wire contracts', () => {
       expect(tool.description).not.toContain('"preferred"');
       expect((tool.inputSchema.properties?.auth as { description?: string }).description).toContain('Use "preferred" for normal requests');
     }
+    for (const tool of tools.tools) expect((tool.outputSchema?.properties as { data: { type?: string } }).data.type).toMatch(/^(object|array)$/);
     const product = tools.tools.find(t => t.name === 'get_product')!;
     expect(product.description).toContain('0.02 = 2%');
     expect(product.description).toContain('do not apply a universal 2% threshold');
@@ -76,7 +77,7 @@ describe('MCP wire contracts', () => {
     const running = new Promise<void>(resolve => { started = resolve; });
     const cancelled = new Promise<void>(resolve => { aborted = resolve; });
     const service = new Research(configFromEnv({}), {
-      status: () => ({}), close: async () => {},
+      status: () => ({ account_configured: false, active_requests: 0, last_failure: null }), close: async () => {},
       run: async op => {
         const signal = op.signal;
         await new Promise<void>(resolve => {
@@ -107,7 +108,7 @@ it('accepts concurrent stateless calls with the same JSON-RPC ID without cross-c
   const gate = new Promise<void>(r => { release = r; });
   let active = 0;
   const config = configFromEnv({});
-  const service = new Research(config, { status: () => ({}), close: async () => {}, run: async op => {
+  const service = new Research(config, { status: () => ({ account_configured: false, active_requests: 0, last_failure: null }), close: async () => {}, run: async op => {
     if (++active === 2) started();
     await gate; op.check(); fail('CHALLENGE_UNRESOLVED', 'Controlled test failure.');
   } }, browserCatalog, new Cursors('x'.repeat(64)));

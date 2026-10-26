@@ -29,7 +29,7 @@ it('logs one correlated terminal outcome for success, partial results, and inval
     page: async url => ({ url, status: 200, headers: {}, html: '<script>var _pageData={"isUserLogged":false,"categoryId":18845887,"configurationId":3,"data":{"categoryTypeId":1,"searchTerm":"private-search"}};</script><a data-sort="0"></a>' }),
     json: async () => ({ d: { Count: 2, Page: 1, Boxes: '<div class="browsingitem" data-id="1"><a class="name" href="/disk-d1.htm">Disk</a><div class="price"><span class="js-price-box__primary-price__value">100,-</span></div></div>', PagerBottom: '' } }),
   };
-  const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; return work(reader); }, status: () => ({}), close: async () => {} };
+  const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; return work(reader); }, status: () => ({ account_configured: false, active_requests: 0, last_failure: null }), close: async () => {} };
   const research = new Research(configFromEnv({}), access, browserCatalog, new Cursors('x'.repeat(64)));
   const results = await withLogContext({ http_request_id: 'transport-1' }, async () => [
     await research.call('get_session_status', {}),

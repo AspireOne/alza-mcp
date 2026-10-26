@@ -1,7 +1,7 @@
 import type { Provider } from "../domain/contracts.js";
 import { fail, failureOf, FailureError } from "./failure.js";
 import type { Config } from "./config.js";
-import type { Access, Reader } from "./reader.js";
+import type { Access, AccessStatus, Reader } from "./reader.js";
 import { Operation, OperationQueue } from "./operation.js";
 import { SessionBrowser } from "./session-browser.js";
 import { solverReader } from "./solver.js";
@@ -165,7 +165,7 @@ export class AccessCoordinator implements Access {
       throw new FailureError(failure);
     });
   }
-  status(): Record<string, unknown> { return { browser: this.browser.status(), queue_size: this.queue.size, active_requests: this.queue.active, browser_concurrency: this.queue.concurrency, account_configured: !!this.store.account, last_failure: this.lastFailure, cooldown_until: Math.max(0, ...this.cooldowns.values()), recovery: { flaresolverr: this.config.flareUrl ? "configured" : "disabled", byparr: this.config.byparrUrl ? "configured" : "disabled" } }; }
+  status(): AccessStatus { return { browser: this.browser.status(), queue_size: this.queue.size, active_requests: this.queue.active, browser_concurrency: this.queue.concurrency, account_configured: !!this.store.account, last_failure: this.lastFailure, cooldown_until: Math.max(0, ...this.cooldowns.values()), recovery: { flaresolverr: this.config.flareUrl ? "configured" : "disabled", byparr: this.config.byparrUrl ? "configured" : "disabled" } }; }
   close(beforeRelease?: () => Promise<void>): Promise<void> {
     this.closed = true;
     this.cancelIdle();

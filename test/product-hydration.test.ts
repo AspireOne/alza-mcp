@@ -45,7 +45,7 @@ async function harness(pageHtml = html) {
       resource.reader.page = async (...args) => { const document = await page(...args); captures.push(document.html); return document; };
       try { return await work(resource.reader); } finally { await resource.dispose(); }
     },
-    status: () => ({}), close: () => browser.close(),
+    status: () => ({ account_configured: false, active_requests: 0, last_failure: null }), close: () => browser.close(),
   };
   return { research: new Research(config, access, browserCatalog, new Cursors('x'.repeat(64))), productNavigations: () => productNavigations, captures };
 }

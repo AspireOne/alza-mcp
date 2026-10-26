@@ -43,7 +43,7 @@ it('waits for asynchronous navigation tiles before returning a landing category'
   const access: Access = { run: async (op, work) => {
     const resource = await browser.reader(op, 'anonymous', Date.now() + 20_000);
     try { return await work(resource.reader); } finally { await resource.dispose(); }
-  }, status: () => ({}), close: () => browser.close() };
+  }, status: () => ({ account_configured: false, active_requests: 0, last_failure: null }), close: () => browser.close() };
   const research = new Research(config, access, browserCatalog, new Cursors('x'.repeat(64)));
   let settled = false;
   const result = research.call('get_category', { category_id: 18901355 }).then(value => { settled = true; return value; });

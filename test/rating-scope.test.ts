@@ -21,7 +21,7 @@ function harness(stats = structuredClone(capture.stats), htmlAggregate: unknown 
       const offset = Number(url.searchParams.get('offset')), limit = Number(url.searchParams.get('limit'));
       return { paging: { size: 48, limit, next: offset + limit < 48 ? { href: `https://webapi.alza.cz/api/catalog/v2/commodities/${capture.id}/reviews?offset=${offset + limit}&limit=${limit}` } : null }, value: reviews.slice(offset, offset + limit) };
     } };
-  const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; return work(reader); }, status: () => ({}), close: async () => {} };
+  const access: Access = { run: async (op, work) => { op.meta.auth.state = 'anonymous'; return work(reader); }, status: () => ({ account_configured: false, active_requests: 0, last_failure: null }), close: async () => {} };
   return { research: new Research(configFromEnv({}), access, browserCatalog, new Cursors('x'.repeat(64))), requests };
 }
 

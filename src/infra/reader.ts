@@ -1,4 +1,4 @@
-import type { AuthMode, Provider } from "../domain/contracts.js";
+import type { AuthMode, Failure, Provider } from "../domain/contracts.js";
 import type { Operation } from "./operation.js";
 
 export interface Document {
@@ -20,9 +20,11 @@ export interface Reader extends Source {
   readonly canPost: boolean;
   page(url: string, options?: { detail?: readonly DetailSection[]; stock?: boolean; category?: boolean }): Promise<Document>;
 }
+/** Status fields every backend reports; backends add their own details. */
+export interface AccessStatus { account_configured: boolean; active_requests: number; last_failure: Failure | null; [detail: string]: unknown }
 export interface Access<S extends Source = Reader> {
   run<T>(op: Operation, work: (source: S) => Promise<T>, expectedContext?: string): Promise<T>;
-  status(): Record<string, unknown>;
+  status(): AccessStatus;
   close(): Promise<void>;
 }
 export interface BrowserOptions { auth: AuthMode; signal?: AbortSignal }
