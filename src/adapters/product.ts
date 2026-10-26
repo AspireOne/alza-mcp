@@ -3,7 +3,7 @@ import type { Product, ProductSection, Section, Offer } from "../domain/contract
 import { PRODUCT_SECTIONS } from "../domain/contracts.js";
 import { fail, failureOf } from "../infra/failure.js";
 import { productId, alzaUrl } from "../infra/urls.js";
-import { jsonLd, object, pageData, string, text } from "./html.js";
+import { blockText, jsonLd, object, pageData, string, text } from "./html.js";
 import { money, offer, membershipReference, promotionalOffers, couponFromTitle } from "./listings.js";
 
 const available = (data: unknown): Section<unknown> => ({ state: "available", data });
@@ -22,10 +22,7 @@ export function parseProduct(html: string, url: string, id: number, signedIn: bo
     description: () => {
       const node = $("#descAnnotation");
       if (node.length && !text(node.text())) fail("SECTION_INCOMPLETE", "The full product description did not finish loading.");
-      const clone = (node.length ? node : $("#descriptionContent")).clone();
-      clone.find("script, style, link, .infoPopup").remove();
-      clone.find("p, h1, h2, h3, h4, li, br").append("\n");
-      const full = clone.text().replace(/[ \t]+/g, " ").replace(/\n\s*\n/g, "\n").trim();
+      const full = blockText(node.length ? node : $("#descriptionContent"));
       return full || ld.description ? available({ summary: string(ld.description), full_text: full || null }) : absent;
     },
     specifications: () => {

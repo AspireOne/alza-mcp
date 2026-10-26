@@ -5,6 +5,13 @@ export type HtmlSource = string | CheerioAPI;
 export function htmlDocument(source: HtmlSource): CheerioAPI { return typeof source === "string" ? load(source) : source; }
 
 export function text(value: string): string { return value.replace(/\s+/g, " ").trim(); }
+/** Readable text of rich description markup, one block element per line. */
+export function blockText(node: ReturnType<CheerioAPI>): string {
+  const clone = node.clone();
+  clone.find("script, style, link, .infoPopup").remove();
+  clone.find("p, h1, h2, h3, h4, li, br").append("\n");
+  return clone.text().replace(/[ \t]+/g, " ").replace(/\n\s*\n/g, "\n").trim();
+}
 export function object(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 export function string(value: unknown): string | null { return typeof value === "string" ? value : null; }
 export function number(value: unknown): number | null { return typeof value === "number" && Number.isFinite(value) ? value : null; }

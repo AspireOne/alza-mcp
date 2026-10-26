@@ -6,17 +6,22 @@ import { log, startFileLogging, closeFileLogging } from './infra/logger.js';
 import { buildApplication, createServer } from './server.js';
 import { configFromEnv } from './infra/config.js';
 import { httpServer } from './http.js';
-import { importSession } from './session.js';
+import { importSession, loginApiSession } from './session.js';
 import { failureOf } from './infra/failure.js';
 import { httpAuthFromEnv } from './http-auth.js';
 
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: { http: { type: 'boolean' }, help: { type: 'boolean' }, storage: { type: 'string' }, profile: { type: 'string' }, 'expected-user-id': { type: 'string' } } });
-  if (values.help) { process.stdout.write('alza-mcp [--http]\nalza-mcp session import (--storage FILE | --profile CLOSED_CHROMIUM_USER_DATA_DIR) --expected-user-id ID\nConfiguration: ALZA_DATA_DIR, ALZA_AUTH_MODE, ALZA_HTTP_AUTH, ALZA_MCP_TOKEN, ALZA_PUBLIC_URL, ALZA_FLARESOLVERR_URL, ALZA_BYPARR_URL.\n'); return; }
+  if (values.help) { process.stdout.write('alza-mcp [--http]\nalza-mcp session import (--storage FILE | --profile CLOSED_CHROMIUM_USER_DATA_DIR) --expected-user-id ID\nalza-mcp api-session login --expected-user-id ID\nConfiguration: ALZA_BACKEND (browser | api), ALZA_DATA_DIR, ALZA_AUTH_MODE, ALZA_HTTP_AUTH, ALZA_MCP_TOKEN, ALZA_PUBLIC_URL, ALZA_FLARESOLVERR_URL, ALZA_BYPARR_URL.\n'); return; }
   const config = configFromEnv();
   if (positionals.join(' ') === 'session import') {
     await importSession(config, { storage: values.storage, profile: values.profile, expectedUserId: values['expected-user-id'] ?? '' });
     process.stdout.write('Alza session imported and account identity verified.\n'); return;
+  }
+  if (positionals.join(' ') === 'api-session login') {
+    if (values.storage || values.profile) throw new Error('Invalid arguments. Use --help.');
+    await loginApiSession(config, values['expected-user-id'] ?? '');
+    process.stdout.write('Alza API session stored and account identity verified.\n'); return;
   }
   if (positionals.length || values.storage || values.profile || values['expected-user-id']) throw new Error('Invalid arguments. Use --help.');
   const application = await buildApplication(config);

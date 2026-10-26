@@ -14,6 +14,8 @@ export function money(value: unknown): string | null {
   const match = normalized.match(/^(\d+)(?:[,.](\d+|-))?(?:Kč|CZK)?$/);
   return match ? `${match[1]}.${(match[2] === "-" ? "00" : match[2] ?? "00").padEnd(2, "0")}` : null;
 }
+// Alza's condition labels for opened, used and like-new items; new items carry none.
+export const CONDITION_PATTERN = /Rozbaleno|Použité|Zánovní/i;
 export function offer(amount: string, display: string | null, kind: Offer["kind"] = "effective", conditions: string[] = []): Offer {
   return { amount, display, kind, currency: "CZK", vat: "included", eligibility: kind === "conditional" ? "conditional" : "eligible", conditions };
 }
@@ -79,7 +81,7 @@ export function listings(html: HtmlSource, signedIn = false): Listing[] {
     const countRaw = text(card.find(".star-rating-block__count").text()).replace(/[^\d]/g, "");
     result.push({ id, code: card.attr("data-code") ?? null, name: text(link.text()), url, image: card.find("img").first().attr("src") ?? null,
       description: text(card.find(".descr, .description, .Description").first().text()) || null,
-      condition: text(card.find(".wear, .commodity-wear").first().text()) || (/Rozbaleno|Použité/i.exec(card.text())?.[0] ?? null),
+      condition: text(card.find(".wear, .commodity-wear").first().text()) || (CONDITION_PATTERN.exec(card.text())?.[0] ?? null),
       availability: text(card.find(".avail, .availability, .avlVal").first().text()) || null,
       offers, rating: ratingRaw ? Number(ratingRaw.replace(",", ".")) : null, rating_count: countRaw ? Number(countRaw) : null,
       sponsored: !!card.find(".box-recommendation, [data-sponsored]").length || /Sponzorováno/.test(card.text()),

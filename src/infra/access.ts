@@ -72,7 +72,7 @@ export class AccessCoordinator implements Access {
       const cooldown = this.cooldowns.get(initialContext) ?? 0;
       if (cooldown > Date.now()) fail("CHALLENGE_UNRESOLVED", "Automatic recovery is cooling down after an unsuccessful attempt.", { retryable: true, retry_after_ms: cooldown - Date.now() });
       let last: unknown;
-      const providers: Provider[] = ["browser", "flaresolverr", "byparr"];
+      const providers: Exclude<Provider, "api">[] = ["browser", "flaresolverr", "byparr"];
       for (const provider of providers) {
         op.check();
         if (provider === "byparr" && kind === "account") {

@@ -1,0 +1,85 @@
+{
+ "err": 0,
+ "msg": null,
+ "user_id": 1000,
+ "total": 378,
+ "has_next": true,
+ "data": [
+  {
+   "id": 13348053,
+   "code": "KRUAK83",
+   "name": "KRUPS EA4008E0 Serenity Black + dárek za recenzi",
+   "url": "https://www.alza.cz/krups-ea4008e0-serenity-black-d13348053.htm",
+   "img": "https://image.alza.cz/products/KRUAK83/KRUAK83.jpg?width=190&height=190",
+   "spec": "Automatický kávovar - příkon 1450 W,  tlak 15 bar,  objem nádržky na vodu 1,7 l,  možnost přípravy dvou šálků zároveň,  připravuje nápoj jedním stisknutím,  s mlýnkem,  výškově nastavitelná výpusť,  nastavení teploty nápoje,  intenzity/množství kávy,  velikosti nápoje,  rozměry 47,3 × 29,7 × 39,1 cm (V×Š×H),  hmotnost 7,06 kg",
+   "avail": "Skladem > 5 ks",
+   "rating": 4.9,
+   "ratingCount": 12,
+   "sponsoredCommodityInfo": {
+    "text": "Obsah je sponzorovaný a placená propagace může ovlivnit, co a v jakém pořadí vidíte. Pořadí produktů můžete upravit výběrem jiného kritéria řazení.",
+    "actions": {}
+   },
+   "priceInfoV3": {
+    "mainPriceTag": {
+     "primaryPrice": "6 999,-",
+     "primaryPriceNoCurrency": 6999,
+     "secondaryPrice": null,
+     "secondaryPricePrefix": null,
+     "comparePrice": null,
+     "headerText": null,
+     "priceSave": null,
+     "priceType": 1,
+     "priceGroupType": 0
+    },
+    "alternativePriceTag": null
+   },
+   "cashBackItems": [
+    {
+     "type": 2,
+     "price": "5 599,-",
+     "label": "Koupit s kódem ALZADNY20",
+     "sublabel": "ALZADNY20",
+     "annotation": null
+    }
+   ]
+  },
+  {
+   "id": 13348054,
+   "code": "KRUAK190",
+   "name": "KRUPS EA402HE0 Serenity Milk  + dárek za recenzi",
+   "url": "https://www.alza.cz/krups-ea402he0-serenity-milk-d13348054.htm",
+   "img": "https://image.alza.cz/products/KRUAK190/KRUAK190.jpg?width=190&height=190",
+   "spec": "Automatický kávovar - příkon 1450 W,  tlak 15 bar,  objem nádržky na vodu 1,7 l,  možnost přípravy dvou šálků zároveň,  připravuje nápoj jedním stisknutím,  s mlýnkem,  mléčný systém,  výškově nastavitelná výpusť,  nastavení teploty nápoje,  intenzity/množství kávy,  velikosti nápoje,  rozměry 47,3 × 29,7 × 39,1 cm (V×Š×H),  hmotnost 7,32 kg",
+   "avail": "Skladem > 5 ks",
+   "rating": 4.7,
+   "ratingCount": 16,
+   "sponsoredCommodityInfo": {
+    "text": "Obsah je sponzorovaný a placená propagace může ovlivnit, co a v jakém pořadí vidíte. Pořadí produktů můžete upravit výběrem jiného kritéria řazení.",
+    "actions": {}
+   },
+   "priceInfoV3": {
+    "mainPriceTag": {
+     "primaryPrice": "7 999,-",
+     "primaryPriceNoCurrency": 7999,
+     "secondaryPrice": null,
+     "secondaryPricePrefix": null,
+     "comparePrice": null,
+     "headerText": null,
+     "priceSave": null,
+     "priceType": 1,
+     "priceGroupType": 0
+    },
+    "alternativePriceTag": null
+   },
+   "cashBackItems": [
+    {
+     "type": 2,
+     "price": "6 399,-",
+     "label": "Koupit s kódem ALZADNY20",
+     "sublabel": "ALZADNY20",
+     "annotation": null
+    }
+   ]
+  }
+ ]
+}

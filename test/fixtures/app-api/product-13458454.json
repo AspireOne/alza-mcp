@@ -1,0 +1,117 @@
+{
+ "err": 0,
+ "msg": null,
+ "user_id": 1000,
+ "data": {
+  "id": 13458454,
+  "code": "SIEAK712",
+  "name": "SIEMENS TP551E19 EQ500 iAroma",
+  "url": "https://www.alza.cz/siemens-tp551e19-eq500-iaroma-d13458454.htm",
+  "spec": "Automatický kávovar - příkon 1500 W,  tlak 15 bar,  objem nádržky na vodu 1,8 l,  anti-drip systém,  automatické vypnutí,  možnost přípravy dvou šálků zároveň,  připravuje nápoj jedním stisknutím,  s mlýnkem,  hadička na mléko,  výškově nastavitelná výpusť a odkládací plocha na šálky,  s dotykovým ovládacím panelem s ikonami,  nastavení intenzity/množství kávy,  velikosti nápoje,  kompatibilní s home Connect a amazon Alexa,  rozměry 37,8 × 27,2 × 47,2 cm (V×Š×H),  hmotnost 8,2 kg ",
+  "avail": "Skladem > 5 ks",
+  "catalog_number": "TP551E19",
+  "warranty": "24 měsíců",
+  "amountInPack": 1,
+  "minimumAmount": 1,
+  "maxCanBuy": null,
+  "categoryName": "Automatické",
+  "descPageUrl": "https://m.alza.cz/descriptionpage?cCode=SIEAK712&culture=cs-CZ",
+  "self": {
+   "href": "https://www.alza.cz/api/router/legacy/catalog/product/13458454?pgrik=p_test&ucik=u_test&country=CZ&electronicContentOnly=False",
+   "appLink": "catalogProductDetail",
+   "enabled": true
+  },
+  "reviewStats": {
+   "href": "https://webapi.alza.cz/api/catalog/v2/commodities/13458454/reviewStats?country=CZ&pgrik=p_test&ucik=u_test",
+   "appLink": "reviewStats",
+   "enabled": true
+  },
+  "parameterGroups": [
+   {
+    "name": "Typ kávovaru",
+    "params": [
+     {
+      "name": "Typ",
+      "values": [
+       {
+        "desc": "Automatický"
+       }
+      ]
+     },
+     {
+      "name": "Provedení",
+      "values": [
+       {
+        "desc": "Volně stojící"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Vlastnosti",
+    "params": [
+     {
+      "name": "Příkon",
+      "values": [
+       {
+        "desc": "1 500 W"
+       }
+      ]
+     },
+     {
+      "name": "Tlak čerpadla",
+      "values": [
+       {
+        "desc": "15 bar"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "imgs": [
+   {
+    "origUrl": "https://image.alza.cz/Foto/f4/SI/SIEAK712.jpg"
+   },
+   {
+    "origUrl": "https://image.alza.cz/Foto/FotoAddOrig/SI/SIEAK712-01.jpg"
+   }
+  ],
+  "priceInfoV3": {
+   "mainPriceTag": {
+    "primaryPrice": "12 764 Kč",
+    "primaryPriceNoCurrency": 12763.75,
+    "secondaryPrice": "10 549 Kč",
+    "secondaryPricePrefix": "bez DPH ",
+    "comparePrice": "15 990 Kč",
+    "headerText": "Benefit Sleva -20 %",
+    "priceSave": null,
+    "priceType": 1,
+    "priceGroupType": 5
+   },
+   "alternativePriceTag": {
+    "headerText": "Home Credit AKCE",
+    "primaryPrice": "4,9% ",
+    "primaryPricePostfix": " úrok",
+    "priceSave": "od 250 Kč měsíčně"
+   }
+  },
+  "cashBackItems": [
+   {
+    "type": 2,
+    "price": "10 849,-",
+    "label": "Koupit s kódem ALZADNY15",
+    "sublabel": "ALZADNY15",
+    "annotation": null
+   },
+   {
+    "type": 0,
+    "price": "9 849,-",
+    "label": "Cena s CashBack",
+    "sublabel": "",
+    "annotation": "Cashback znamená možnost získat peníze zpět z nákupu na internetu, obecně vyžaduje registraci.\r\n\r\nZískejte část peněz zpět při nákupu vybraných kávovarů Siemens. "
+   }
+  ]
+ }
+}

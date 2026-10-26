@@ -1,0 +1,83 @@
+{
+ "variants": [],
+ "colorVariants": [],
+ "sizeVariants": [
+  {
+   "parameterTypeName": "Velikost",
+   "values": [
+    {
+     "parameterValue": "90 kapslí",
+     "selected": true,
+     "priceDifferenceText": "+ 0,-",
+     "availability": "InStock",
+     "commodityAction": {
+      "webLink": "https://www.alza.cz/gymbeam-horcik-chelat-bisglycinat-90-kapsli-d7191519.htm"
+     }
+    },
+    {
+     "parameterValue": "180 kapslí",
+     "selected": false,
+     "priceDifferenceText": "+ 130,-",
+     "availability": "InStock",
+     "commodityAction": {
+      "webLink": "https://www.alza.cz/gymbeam-horcik-chelat-bisglycinat-180-kapsli-d12662568.htm"
+     }
+    }
+   ]
+  }
+ ],
+ "wearVariants": [
+  {
+   "isSelected": false,
+   "price": "S kódem od 13 694,-",
+   "description": "Tento produkt je zcela nový, nikdy neotevřený a v originálním balení. A samozřejmě s plnou zárukou.",
+   "commodityAction": {
+    "webLink": "https://www.alza.cz/delonghi-magnifica-plus-ecam-320-61-g-d9682835.htm",
+    "name": "Nový"
+   }
+  },
+  {
+   "isSelected": false,
+   "price": "S kódem od 13 422,-",
+   "description": "Plně funkční zboží ve velmi dobrém stavu. Zboží nese drobné známky používání. Téměř vždy s kompletním příslušenstvím. Obal může být otevřený, poškozený, náhradní nebo může chybět. Záruka 21 měsíců.",
+   "commodityAction": {
+    "webLink": "https://www.alza.cz/delonghi-magnifica-plus-ecam-320-61-g-sleva-d12298425.htm",
+    "name": "Zánovní"
+   }
+  },
+  {
+   "isSelected": true,
+   "price": "S kódem od 11 467,-",
+   "description": "Plně funkční zboží za výhodnější cenu. Zboží nese viditelné známky používání, které nemají vliv na jeho funkčnost. Součástí balení je příslušenství nezbytné pro správnou funkčnost. Obal může být otevřený, poškozený, náhradní nebo může chybět. Záruka 12 měsíců.",
+   "commodityAction": {
+    "webLink": "https://www.alza.cz/delonghi-magnifica-plus-ecam-320-61-g-bazar-d12381430.htm",
+    "name": "Použitý"
+   }
+  }
+ ],
+ "productLines": [
+  {
+   "selected": true,
+   "availability": "InStock",
+   "price": "S kódem od 5 599,-",
+   "commodityAction": {
+    "webLink": "https://www.alza.cz/krups-ea4008e0-serenity-black-d13348053.htm",
+    "name": "EA4008E0 Serenity Black"
+   }
+  },
+  {
+   "selected": false,
+   "availability": "InStock",
+   "price": "S kódem od 6 399,-",
+   "commodityAction": {
+    "webLink": "https://www.alza.cz/krups-ea402he0-serenity-milk-d13348054.htm",
+    "name": "EA402HE0 Serenity Milk"
+   }
+  }
+ ],
+ "productLineDescriptions": [
+  {
+   "name": "KRUPS Serenity"
+  }
+ ]
+}

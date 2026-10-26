@@ -2,9 +2,13 @@ import { McpServer, ProtocolError, ProtocolErrorCode } from "@modelcontextprotoc
 import { z } from "zod";
 import { Research, INPUTS, type ResearchService, type ToolName } from "./domain/research.js";
 import { browserCatalog } from "./domain/browser-catalog.js";
+import { apiCatalog } from "./domain/api-catalog.js";
 import { configFromEnv, type Config } from "./infra/config.js";
 import { StateStore } from "./infra/state.js";
 import { AccessCoordinator } from "./infra/access.js";
+import { ApiAccess } from "./infra/api-access.js";
+import { ApiSession } from "./infra/api-session.js";
+import { Http2Transport } from "./infra/api-transport.js";
 import { Cursors } from "./infra/cursor.js";
 import { AUTH_GUIDANCE } from "./domain/inputs.js";
 
@@ -18,7 +22,7 @@ const descriptions: Record<ToolName, string> = {
   get_product_reviews: "Read complete written reviews, pros/cons, variant, date, verified-purchase labels and rating statistics, including Alza's complaint object. Follow next_cursor to exhaust all reviews; supply cursor alone, without product_id or limit. Website ordering and translated reviews are preserved. " + RATING_GUIDANCE + " " + RELIABILITY_GUIDANCE,
   list_categories: "List categories from Alza's current navigation. Use get_category for children and supported facets.",
   get_category: "Read category children, manufacturers and filter facets. Range facets expose numeric_value in Alza's source units; pass advertised values as from/to. Enum facets accept their advertised value IDs.",
-  get_session_status: "Read local browser, account-configuration, queue and recovery status without contacting Alza. Configuration is not proof that a session is still signed in; auth=required verifies it on each data call.",
+  get_session_status: "Read the local backend, account-configuration, queue and recovery status without contacting Alza. Configuration is not proof that a session is still signed in; auth=required verifies it on each data call.",
 };
 const outputSchema = z.object({
   status: z.enum(["ok", "partial", "error"]),
@@ -29,7 +33,7 @@ const outputSchema = z.object({
     request_id: z.string(),
     fetched_at: z.string(),
     sources: z.array(z.string()),
-    provider: z.enum(["browser", "flaresolverr", "byparr"]),
+    provider: z.enum(["browser", "flaresolverr", "byparr", "api"]),
     auth: z.object({
       requested: z.enum(["required", "preferred", "anonymous"]),
       state: z.enum(["signed_in", "anonymous", "unverified"]),
@@ -38,7 +42,7 @@ const outputSchema = z.object({
     challenge: z.discriminatedUnion("status", [
       z.object({ status: z.literal("not_detected") }),
       z.object({ status: z.literal("detected") }),
-      z.object({ status: z.literal("solved"), duration_ms: z.number().nonnegative(), provider: z.enum(["browser", "flaresolverr", "byparr"]) }),
+      z.object({ status: z.literal("solved"), duration_ms: z.number().nonnegative(), provider: z.enum(["browser", "flaresolverr", "byparr", "api"]) }),
     ]),
     cache: z.object({ hit: z.boolean(), age_ms: z.number() }),
     warnings: z.array(z.object({ code: z.string(), message: z.string() })),
@@ -68,6 +72,11 @@ export function createServer(research: ResearchService, signal?: AbortSignal): M
 }
 export async function buildApplication(config: Config = configFromEnv()): Promise<{ research: ResearchService; close: (beforeRelease?: () => Promise<void>) => Promise<void> }> {
   const store = new StateStore(config.dataDir); await store.open();
+  if (config.backend === "api") {
+    const transport = new Http2Transport();
+    const access = new ApiAccess(config, store, transport, await ApiSession.load(config.dataDir, transport));
+    return { research: new Research(config, access, apiCatalog, new Cursors(store.key)), close: beforeRelease => access.close(beforeRelease) };
+  }
   const access = new AccessCoordinator(config, store);
   return { research: new Research(config, access, browserCatalog, new Cursors(store.key)), close: beforeRelease => access.close(beforeRelease) };
 }

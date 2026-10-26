@@ -1,0 +1,71 @@
+{
+ "err": 0,
+ "msg": null,
+ "user_id": 1000,
+ "params": [
+  {
+   "groups": [
+    {
+     "params": [
+      {
+       "tId": 17767,
+       "name": "Typ",
+       "renderType": "Checkbox",
+       "values": [
+        {
+         "v": 239717689,
+         "desc": "Automatický",
+         "cnt": 370
+        },
+        {
+         "v": 239717690,
+         "desc": "Kapslový",
+         "cnt": 6
+        },
+        {
+         "v": 239717691,
+         "desc": "Pákový",
+         "cnt": 4
+        }
+       ]
+      },
+      {
+       "tId": 30598,
+       "name": "Minimální počet receptur",
+       "renderType": "Slider",
+       "values": [
+        {
+         "v": 1,
+         "desc": "1",
+         "cnt": 8
+        },
+        {
+         "v": 2,
+         "desc": "2",
+         "cnt": 17
+        },
+        {
+         "v": 3,
+         "desc": "3",
+         "cnt": 16
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "producers": [
+  {
+   "v": 8445,
+   "desc": "De'Longhi",
+   "cnt": 57
+  },
+  {
+   "v": 1486,
+   "desc": "SIEMENS",
+   "cnt": 52
+  }
+ ]
+}

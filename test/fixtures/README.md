@@ -38,3 +38,17 @@ and 176 star ratings. The complete review response contained 34 Czech and 14
 Slovak country flags, all with `isTranslated: false`. The test reconstructs those
 counts with synthetic review text and identities; no customer text, authors,
 account context parameters or tokens are retained in the fixture.
+
+## App API
+
+`app-api/` contains Alza mobile-app API responses captured on 2026-10-26
+(Europe/Prague) and trimmed to the fields the API backend parses. Account context
+parameters (`pgrik`, `ucik`) are replaced with `p_test`/`u_test`, and the account
+ID is replaced with `1000`. `product-13458454.json` is the signed-in
+[Siemens product](https://www.alza.cz/siemens-tp551e19-eq500-iaroma-d13458454.htm)
+with a company benefit, coupon and cashback; `listing.json` holds two signed-in
+category listings. `variants.json` combines the size variants of the
+[GymBeam 90 capsules](https://www.alza.cz/gymbeam-horcik-chelat-bisglycinat-90-kapsli-d7191519.htm),
+the condition variants of a used De'Longhi (12381430) and the product line of a
+Krups machine (13348053). Failure cases mutate these captures; the transport in
+the tests is synthetic.

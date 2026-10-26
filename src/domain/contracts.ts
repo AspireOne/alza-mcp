@@ -1,5 +1,5 @@
 export type AuthMode = "preferred" | "required" | "anonymous";
-export type Provider = "browser" | "flaresolverr" | "byparr";
+export type Provider = "browser" | "flaresolverr" | "byparr" | "api";
 export type AccountContext = { state: "anonymous" | "signed_in"; generation: string };
 export interface Notice { code: string; message: string }
 export interface Attempt { provider: Provider; outcome: "success" | "failed" | "skipped"; code?: string; duration_ms: number }

@@ -5,7 +5,9 @@ import { fail } from "./failure.js";
 // Larger Node timer delays overflow and fire almost immediately.
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
+export type Backend = "browser" | "api";
 export interface Config {
+  backend: Backend;
   dataDir: string;
   headless: boolean;
   executablePath?: string;
@@ -22,6 +24,8 @@ export interface Config {
 }
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
   if (env.ALZA_BASE_URL && env.ALZA_BASE_URL.replace(/\/$/, "") !== "https://www.alza.cz") fail('CONFIGURATION_ERROR', "Only https://www.alza.cz is supported in v0.2.");
+  const backend = env.ALZA_BACKEND ?? "browser";
+  if (backend !== "browser" && backend !== "api") fail('CONFIGURATION_ERROR', "ALZA_BACKEND must be browser or api.");
   const authMode = env.ALZA_AUTH_MODE ?? "preferred";
   if (!["preferred", "required", "anonymous"].includes(authMode)) fail('CONFIGURATION_ERROR', "Invalid ALZA_AUTH_MODE.");
   const browserConcurrency = env.ALZA_BROWSER_CONCURRENCY ?? "2";
@@ -30,6 +34,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
   const browserIdleTimeoutMs = Number(browserIdleTimeout);
   if (!/^\d+$/.test(browserIdleTimeout) || !Number.isSafeInteger(browserIdleTimeoutMs) || browserIdleTimeoutMs > MAX_TIMER_DELAY_MS) fail('CONFIGURATION_ERROR', "ALZA_BROWSER_IDLE_TIMEOUT_MS must be an integer from 0 to 2147483647; 0 disables idle shutdown.");
   return {
+    backend,
     dataDir: resolve(env.ALZA_DATA_DIR ?? ".alza-mcp"),
     headless: env.ALZA_HEADLESS === "true",
     executablePath: env.ALZA_BROWSER_EXECUTABLE,

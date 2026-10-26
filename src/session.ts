@@ -7,6 +7,9 @@ import { applyStorage } from "./infra/session-browser.js";
 import { accountFromHtml, classifyResponse } from "./adapters/html.js";
 import { BASE_URL } from "./infra/urls.js";
 import { fail } from "./infra/failure.js";
+import { createInterface } from "node:readline/promises";
+import { completeLogin, startLogin } from "./infra/api-session.js";
+import { Http2Transport } from "./infra/api-transport.js";
 
 export async function importSession(config: Config, options: { storage?: string; profile?: string; expectedUserId: string }): Promise<void> {
   if (!/^\d+$/.test(options.expectedUserId) || Number(options.expectedUserId) <= 0) fail("INVALID_INPUT", "--expected-user-id must be your numeric Alza account ID.");
@@ -39,4 +42,17 @@ export async function importSession(config: Config, options: { storage?: string;
     await context.close(); context = undefined;
     await store.commitImport(refreshed, options.expectedUserId, staged);
   } finally { await context?.close(); await rm(temporary, { recursive: true, force: true }); await store.close(); }
+}
+
+/** Signs the API backend in through Alza's app login. The browser cannot open the app's alza:// redirect, so the user pastes it back. */
+export async function loginApiSession(config: Config, expectedUserId: string): Promise<void> {
+  const store = new StateStore(config.dataDir); await store.open();
+  const transport = new Http2Transport();
+  const prompt = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const pending = startLogin();
+    process.stderr.write(`1. Open this link in a browser and sign in to Alza:\n\n${pending.url}\n\n2. The browser then fails to open an alza://identity?code=… link. Copy that link from the browser console or the network panel (the last redirect's Location header).\n\n`);
+    const redirect = await prompt.question("Paste the alza://identity link: ");
+    await completeLogin(config.dataDir, transport, pending, redirect, expectedUserId);
+  } finally { prompt.close(); await transport.close(); await store.close(); }
 }

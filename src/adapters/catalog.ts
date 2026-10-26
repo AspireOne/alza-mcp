@@ -6,7 +6,8 @@ import { fail } from "../infra/failure.js";
 import { htmlDocument, object, pageData, text, type HtmlSource } from "./html.js";
 import { listings } from "./listings.js";
 
-const SORT_CODES: Record<Sort, number> = { relevance: 0, bestselling: 7, price_asc: 1, price_desc: 2, rating: 6, newest: 5 };
+// Sort codes shared by the storefront and the app.
+export const SORT_CODES: Record<Sort, number> = { relevance: 0, bestselling: 7, price_asc: 1, price_desc: 2, rating: 6, newest: 5 };
 const CONDITION_IDS = { new: "inpStatusNew", opened: "inpStatusOpen", used: "inpStatusUsed" };
 export function searchUrl(query: SearchQuery): string {
   if (query.query) {
