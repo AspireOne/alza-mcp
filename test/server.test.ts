@@ -33,6 +33,9 @@ describe('MCP wire contracts', () => {
     expect(result.isError).toBe(true); expect(result.structuredContent).toMatchObject({ status: 'error', error: { code: 'CHALLENGE_UNRESOLVED' } });
     expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text)).toEqual(result.structuredContent);
     expect(await client.callTool({ name: 'get_product', arguments: {} })).toMatchObject({ isError: true, structuredContent: { error: { code: 'INVALID_INPUT' } } });
+    const cursor = tools.tools.find(tool => tool.name === 'get_product_reviews')!.inputSchema.properties?.cursor as { description: string };
+    expect(cursor.description).toContain('Supply alone, without product_id or limit');
+    expect(await client.callTool({ name: 'get_product_reviews', arguments: { cursor: 'opaque', limit: 5 } })).toMatchObject({ isError: true, structuredContent: { error: { code: 'INVALID_INPUT', message: expect.stringContaining('cursor alone') } } });
     expect(await client.callTool({ name: 'search_products', arguments: { query: 'disk', filters: { manufacturers: Array(101).fill(null) } } })).toMatchObject({ isError: true, structuredContent: { error: { code: 'INVALID_INPUT' } } });
   });
   it('supports real stateless HTTP clients and rejects token, host, origin and body errors', async () => {
