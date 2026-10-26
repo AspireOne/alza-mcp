@@ -55,6 +55,13 @@ export function parseProduct(html: string, url: string, id: number, signedIn: bo
         if (!variantId) continue;
         variants.set(variantId, { id: variantId, name: text(n.text()) || n.attr("title") || n.find("img").attr("alt") || "", url: alzaUrl(href) });
       }
+      if (!variants.size && detail.hasVariants === false) {
+        const choices = $('.detailVariants[data-testid="component-detailVariants"] button').toArray().map(el => {
+          const button = $(el), label = button.find('[aria-label]').first(), selected = button.attr('aria-pressed');
+          return { label: text(label.text()), description: label.attr('aria-label') ?? null, price_display: text(label.next().text()) || null, selected: selected === 'true' ? true : selected === 'false' ? false : null };
+        });
+        if (choices.length && choices.every(choice => choice.label)) return available({ displayed_options: choices, note: "Displayed choices are preserved as shown; these controls do not expose linked product IDs." });
+      }
       if ($(".detailVariants").length && !variants.size && (text($('.detailVariants').text()) || detail.hasVariants !== false)) fail("SECTION_INCOMPLETE", "Variant options were present but could not be fully read.");
       return variants.size ? available([...variants.values()]) : absent;
     },

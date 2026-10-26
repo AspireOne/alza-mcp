@@ -49,3 +49,8 @@ it.each([
 ])('rejects $name', async ({ html, code }) => {
   expect(await harness(html).call('get_category', { category_id: hubs[0]!.id })).toMatchObject({ status: 'error', error: { code } });
 });
+
+it('reports an incomplete landing capture instead of returning empty children successfully', async () => {
+  const html = landing().replace(/<div data-testid="category-tiles">.*<\/div>$/, '');
+  expect(await harness(html).call('get_category', { category_id: hubs[0]!.id })).toMatchObject({ status: 'error', error: { code: 'SECTION_INCOMPLETE' } });
+});

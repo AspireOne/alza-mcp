@@ -145,6 +145,13 @@ export class SessionBrowser {
             await op.step("browser.wait_stock", { provider: "browser" }, () => page.locator("label").filter({ hasText: "Skladem kdekoliv" }).locator('input[type="radio"]').first()
               .waitFor({ timeout: Math.min(remaining(), 5000) })).catch(() => {});
           }
+          if (options?.category && initial('[data-testid="component-catalogLocalTitlePage"][data-api-url]').length) {
+            try {
+              await op.step("browser.wait_category", { provider: "browser" }, () => page.waitForFunction(() =>
+                [...window.document.querySelectorAll('[data-testid="component-catalogLocalTitlePage"][data-api-url]')].every(component =>
+                  !!component.querySelector('[data-testid="category-tile"] a[href]')), undefined, { timeout: Math.min(remaining(), 5000) }));
+            } catch { remaining(); fail("SECTION_INCOMPLETE", "Category navigation did not finish loading.", { retryable: true }); }
+          }
           html = await page.content();
           verify(html);
           const document: Document = { url: alzaUrl(page.url()), html, status: response?.status() ?? null, headers };

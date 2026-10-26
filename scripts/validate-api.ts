@@ -5,7 +5,7 @@ import { setTimeout } from 'node:timers/promises';
 import { dirname } from 'node:path';
 import { Client, InMemoryTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { buildApplication, createServer } from '../src/server.js';
-import type { Result, SearchPage, Product, ReviewsPage } from '../src/domain/contracts.js';
+import type { Result, SearchPage, Product, RatingSummary, ReviewsPage } from '../src/domain/contracts.js';
 import { finishTrial, readChecks, SEVEN_DAYS_MS } from './validation-report.js';
 
 const soak = process.argv.includes('--soak');
@@ -19,6 +19,13 @@ const stopped = new AbortController();
 const start = process.env.ALZA_SOAK_STARTED_AT ? Date.parse(process.env.ALZA_SOAK_STARTED_AT) : Date.now();
 let aborted = false;
 const stop = () => stopped.abort();
+function verifyRatings(value: unknown): void {
+  const summary = value as RatingSummary;
+  assert.equal(summary.source, 'review_stats');
+  assert(summary.ratingAverage === null || typeof summary.ratingAverage === 'number');
+  assert(Number.isSafeInteger(summary.ratingCount) && summary.ratingCount >= 0);
+  assert(Number.isSafeInteger(summary.reviewCount) && summary.reviewCount >= 0);
+}
 process.once('SIGTERM', stop); process.once('SIGINT', stop);
 let close: () => Promise<void> = async () => {};
 await mkdir(dirname(report), { recursive: true });
@@ -52,8 +59,8 @@ try {
     async () => { await call<unknown[]>('list_categories', { auth }, data => { assert(data.length > 0); }); },
     async () => { await call<{ id: number; facets: unknown[] }>('get_category', { category_id: categoryId, auth }, data => { assert.equal(data.id, categoryId); assert(data.facets.length > 0); }); },
     async () => { await call<SearchPage>('search_products', searchArgs, data => { assert(data.products.length > 0); assert(data.products.every(p => p.id > 0 && p.name && p.url)); }); },
-    async () => { await call<Product>('get_product', { product_id: productId, auth }, data => { assert.equal(data.id, productId); assert.equal(data.sections.description?.state, 'available'); assert.equal(data.sections.specifications?.state, 'available'); assert.equal(data.sections.offers?.state, 'available'); }); },
-    async () => { await call<ReviewsPage>('get_product_reviews', { product_id: productId, limit: 50, auth }, data => { assert(data.reviews.length > 0); assert.equal(data.statistics.state, 'available'); }); },
+    async () => { await call<Product>('get_product', { product_id: productId, auth }, data => { assert.equal(data.id, productId); assert.equal(data.sections.description?.state, 'available'); assert.equal(data.sections.specifications?.state, 'available'); assert.equal(data.sections.offers?.state, 'available'); assert.equal(data.sections.ratings?.state, 'available'); if (data.sections.ratings?.state === 'available') { verifyRatings(data.sections.ratings.data); assert(Object.hasOwn(data.sections.ratings.data as object, 'html_aggregate')); } }); },
+    async () => { await call<ReviewsPage>('get_product_reviews', { product_id: productId, limit: 50, auth }, data => { assert(data.reviews.length > 0); assert.equal(data.statistics.state, 'available'); if (data.statistics.state === 'available') verifyRatings(data.statistics.data); assert(data.reviews.every(review => review.country_flag_url === null || typeof review.country_flag_url === 'string')); }); },
   ];
   if (soak) {
     if (!process.env.ALZA_MCP_URL) throw new Error('The soak trial requires ALZA_MCP_URL pointing to the deployed server.');

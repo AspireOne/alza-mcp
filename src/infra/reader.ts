@@ -12,7 +12,7 @@ export interface Reader {
   readonly provider: Provider;
   readonly canPost: boolean;
   readonly context: string;
-  page(url: string, options?: { detail?: readonly DetailSection[]; stock?: boolean }): Promise<Document>;
+  page(url: string, options?: { detail?: readonly DetailSection[]; stock?: boolean; category?: boolean }): Promise<Document>;
   json(url: string, body?: unknown): Promise<unknown>;
   // Lazy readers must freshly verify this operation before a cache-only result is used.
   verify?(): Promise<void>;

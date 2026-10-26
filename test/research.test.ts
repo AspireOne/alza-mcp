@@ -77,7 +77,7 @@ describe('research traversal contracts', () => {
   it('requests a hydrated stock control and sends only Alza’s advertised value', async () => {
     const h = harness([{ ids: [1], total: 1, next: false }], `${bootstrap}<label>Skladem kdekoliv<input type="radio" value="1"></label>`);
     expect(await h.research.call('search_products', { query: 'chytrý lokátor', filters: { in_stock: true } })).toMatchObject({ status: 'ok' });
-    expect(h.pageOptions).toContainEqual({ stock: true });
+    expect(h.pageOptions).toContainEqual({ stock: true, category: true });
     expect(h.requests).toMatchObject([{ availabilityType: 1 }]);
   });
   it('rejects a valid signed cursor after a server restart', async () => {
@@ -87,6 +87,16 @@ describe('research traversal contracts', () => {
 });
 
 describe('source fidelity', () => {
+  it('retains condition-only buttons without inventing product IDs or an observed selection', () => {
+    const html = '<script>var _pageData={"isUserLogged":false,"data":{"cid":42,"hasVariants":false}};</script><script type="application/ld+json">{"@type":"Product","name":"Purifier"}</script><div class="detailVariants" data-testid="component-detailVariants"><button><div><div aria-label="New item">Nový</div><div>2 013,-</div></div></button><button><div><div aria-label="Previously used item">Zánovní</div><div>1 989,-</div></div></button></div>';
+    const product = parseProduct(html, 'https://www.alza.cz/product-d42.htm', 42, false, ['variants']);
+    expect(product.sections.variants).toMatchObject({ state: 'available', data: { displayed_options: [
+      { label: 'Nový', description: 'New item', price_display: '2 013,-', selected: null },
+      { label: 'Zánovní', description: 'Previously used item', price_display: '1 989,-', selected: null },
+    ] } });
+    expect(JSON.stringify(product.sections.variants)).not.toContain('"id"');
+    expect(parseProduct(html.replace('"hasVariants":false', '"hasVariants":true'), 'https://www.alza.cz/product-d42.htm', 42, false, ['variants']).sections.variants).toMatchObject({ state: 'failed', error: { code: 'SECTION_INCOMPLETE' } });
+  });
   it('accepts a single rendered page without a pager but never treats it as a later page', () => {
     const html = bootstrap + card(1) + '<span id="lblNumberItem">1</span>';
     expect(parseRenderedSearch(html, 1, { query: 'disk' })).toMatchObject({ total: 1, next: false });

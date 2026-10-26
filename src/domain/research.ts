@@ -66,7 +66,7 @@ export class Research {
           case "get_product_reviews": return this.reviews(reader, op, args, continuation?.kind === "reviews" ? continuation : undefined);
           case "list_categories": return { data: await this.cached(reader, op, "categories", 86_400_000, async () => categories((await reader.page(BASE_URL)).html)) };
           case "get_category": return { data: await this.cached(reader, op, `category:${args.category_id}`, 86_400_000, async () => {
-            const doc = await reader.page(searchUrl({ category_id: args.category_id as number }));
+            const doc = await reader.page(searchUrl({ category_id: args.category_id as number }), { category: true });
             const $ = load(doc.html);
             const observed = categoryIdentity($);
             if (observed !== args.category_id) {
@@ -113,7 +113,7 @@ export class Research {
     const query: SearchQuery = previous?.query ?? { query: args.query as string | undefined, category_id: args.category_id as number | undefined, filters: args.filters as SearchQuery["filters"], sort: args.sort as SearchQuery["sort"] };
     const page = previous?.page ?? 1;
     const result = await this.cached(reader, op, `search:${JSON.stringify(query)}:${page}`, 60_000, async () => {
-      const doc = await reader.page(searchUrl(query), { stock: query.filters?.in_stock });
+      const doc = await reader.page(searchUrl(query), { stock: query.filters?.in_stock, category: true });
       const $ = load(doc.html), bootstrap = pageData($), data = object(bootstrap.data);
       const sorts = sortOrders($);
       if (data.isSearch === true && data.isEmpty === true && page === 1) {

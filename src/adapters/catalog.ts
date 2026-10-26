@@ -46,6 +46,7 @@ export function categories(html: HtmlSource, children = false): Category[] {
     if (match && name && !found.has(Number(match[1]))) found.set(Number(match[1]), { id: Number(match[1]), name, url: alzaUrl(href!) });
   }
   if (!found.size && !children) fail("SCHEMA_CHANGED", "Alza's root category navigation was not recognized.");
+  if (!found.size && children && $('[data-testid="component-catalogLocalTitlePage"][data-api-url]').length) fail("SECTION_INCOMPLETE", "Category navigation did not finish loading.", { retryable: true });
   return [...found.values()];
 }
 
