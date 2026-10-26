@@ -11,7 +11,7 @@ npm run build
 npm audit
 ```
 
-Tests use real application collaborators and MCP transports where practical. Replace only browser/network boundaries to force challenge, expiration, pagination and schema failures. Preserve source values and test meaningful distinctions: no results versus failed parsing, public versus conditional prices, rating count versus review count, and partial versus exhausted traversal.
+Tests use real application collaborators and MCP transports where practical. Replace only browser, API-transport or network boundaries to force challenge, expiration, pagination and schema failures. Preserve source values and test meaningful distinctions: no results versus failed parsing, public versus conditional prices, rating count versus review count, and partial versus exhausted traversal.
 
 New upstream behavior belongs in `src/adapters`; provider lifetime and authentication belong in `src/infra`. Tool inputs and research results are defined in `src/domain`. Keep endpoint restrictions, account checks and error metadata intact. Do not log raw HTML, credentials, session exports or browser exception messages.
 
@@ -79,6 +79,7 @@ Against the local source tree:
 
 ```sh
 xvfb-run -a npm run validate:api
+ALZA_BACKEND=api npm run validate:api
 ```
 
 Against the deployed server:
@@ -87,7 +88,7 @@ Against the deployed server:
 ALZA_MCP_URL=https://your-alza-domain.example/mcp npm run validate:api
 ```
 
-Set `ALZA_MCP_TOKEN` through a private environment or secret manager. Optional `ALZA_TEST_CATEGORY`, `ALZA_TEST_PRODUCT`, and `ALZA_TEST_AUTH` select the test data and authentication policy. Defaults use an SSD category and a reviewed Samsung SSD. Use `required` to test an imported account. Product retirement or catalogue changes may require updating those test IDs; an empty or partial response is a failed check.
+Set `ALZA_MCP_TOKEN` through a private environment or secret manager. Optional `ALZA_TEST_CATEGORY`, `ALZA_TEST_PRODUCT`, and `ALZA_TEST_AUTH` select the test data and authentication policy. Defaults use an SSD category and a reviewed Samsung SSD. When changing the API backend, also compare its results with the browser backend's for the same calls; the [documented differences](README.md#choose-a-backend) are the only expected ones. Use `required` to test the configured account. Product retirement or catalogue changes may require updating those test IDs; an empty or partial response is a failed check.
 
 Exercise the Docker deployment as well as the local browser. Confirm that the data volume survives a container replacement, both solver ports remain private, bad credentials and origins fail, and required authentication fails explicitly without an imported account. Compare a required-auth result's effective price against the same account in the normal storefront before relying on company or AlzaPlus benefits.
 

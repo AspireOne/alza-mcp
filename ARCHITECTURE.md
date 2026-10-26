@@ -1,10 +1,18 @@
 # Architecture
 
-The server is a single-account research adapter around the current Alza.cz storefront. The goal is evidence that an agent can inspect: product identity, complete traversal state, prices with their conditions, and explicit failures. The storefront is an undocumented dependency, so success means validating the response's meaning, not merely receiving HTTP 200.
+The server is a single-account research adapter around the current Alza.cz storefront and its mobile-app API. The goal is evidence that an agent can inspect: product identity, complete traversal state, prices with their conditions, and explicit failures. The storefront is an undocumented dependency, so success means validating the response's meaning, not merely receiving HTTP 200.
+
+## Backends
+
+Two interchangeable backends read Alza: the browser backend and the API backend. `ALZA_BACKEND` selects one per process. [Research](src/domain/research.ts) owns traversal, caching and the result contract for both; each backend supplies a [`Catalog`](src/domain/catalog.ts) that retrieves and parses data, and an `Access` that owns its sources and sign-in. The browser backend is the long-tested path and stays the fallback, so the API backend never falls back to it silently. Instead, failures that suggest an Alza-side change name the switch.
+
+The API backend impersonates Alza's Android app: its user agent, `Balancer-Guid` visitor ID and OAuth client. These are public in the app and may change with app releases. Cloudflare rejects Node's HTTP/1.1 TLS fingerprint for app-identified requests but accepts its HTTP/2 client, so the [transport](src/infra/api-transport.ts) uses only HTTP/2 and follows redirects only within Alza's hosts. Every payload is schema-checked against the fields the adapter reads; a mismatch logs the failing paths and fails as `SCHEMA_CHANGED` rather than producing partial guesses. One transient network retry shares the operation deadline. There is no challenge solving: a bot block is `API_BLOCKED`.
+
+The app's endpoints, request formats and enum values come from the decompiled app and live probes, not documentation. Category listings and text search take the same filter object as the app: facet values `{tId, v, vFrom, vTo}`, condition as `commodityWears` (new 0, opened 2, used 1 and 3) and in-stock-anywhere as `availabilityType` 1. Product detail combines the legacy router payload (prices, availability, parameters) with the v14 detail (brand, manuals, variant link); the v14 call needs the price-group and account context from the router's self link.
 
 ## Access and recovery
 
-A managed, persistent Patchright Chromium profile is the primary data source. Running headed under Xvfb keeps the same browser mode on the home server and in container checks. Browser, operating-system and network identity still differ from a copied desktop session; copying cookies cannot guarantee trust or prevent a challenge.
+On the browser backend, a managed, persistent Patchright Chromium profile is the primary data source. Running headed under Xvfb keeps the same browser mode on the home server and in container checks. Browser, operating-system and network identity still differ from a copied desktop session; copying cookies cannot guarantee trust or prevent a challenge.
 
 The browser executes storefront GET requests and the read-only catalogue filter POST in its own context. Page scripts may perform their normal browser traffic; the adapter exposes no transaction operations. It does not block media or replace Chromium's native user agent.
 
@@ -21,6 +29,8 @@ The dependency versions are fixed in [package-lock.json](package-lock.json), [Do
 A numeric Alza product ID identifies a listing. A product code can appear on new, opened or used listings with different IDs, so code resolution must establish a unique exact match. A canonical product request must return the requested ID before any detail is accepted.
 
 Anonymous and imported-account profiles use separate persistent browser contexts. Concurrent startup is deduplicated per profile, and each operation owns a separate page and authentication verification state. Account identity comes from a fresh first-party page's signed-in state and numeric user ID, not from cookie presence. A requested page supplies this evidence directly; cache-only and JSON-first reads load a first-party page when the operation has not yet verified identity. Verification is scoped to the operation, so retained browser state cannot authorize a later cached response. Account replacement creates a new generation, which invalidates prior cache and traversal contexts. A filesystem lock prevents two processes from owning the same profiles. Never launch a separate browser against these managed directories. Under the exclusive lease, stale Chromium locks from a replaced container can be removed; a live local browser PID is still rejected.
+
+The API backend's account is an OAuth session from the app's PKCE sign-in, stored in `api-session.json` with the expected account ID and a visitor ID. The access token's `sub` claim must match the expected ID at sign-in and on every refresh. Restservice responses also report `user_id`; an anonymous answer to a signed-in request is `AUTH_REQUIRED`, and another account's ID is `AUTH_ACCOUNT_MISMATCH`. Concurrent callers share one refresh, and a rotated refresh token is written to disk before use, because the old one may already be invalid. The session generation keys caches and cursors as the browser account generation does.
 
 Session import is an offline administrative action. It validates a temporary profile before replacing the manifest. Filesystem protection matters because Chromium cookies and storage state remain credentials even when the MCP surface is read-only. Whole-profile import is an extraction path, not a promise that encrypted cookies, device-bound tokens or browser fingerprints are portable.
 
@@ -50,4 +60,4 @@ Tool-level validation and upstream failures share the [result contract](src/doma
 
 Logs record request IDs, providers, durations and failure codes. Raw browser messages, cookies, HTML and imported storage are not logged. Health checks inspect only the local process; recovery and last-failure state are available through `get_session_status`.
 
-The adapters own upstream interpretation; the research service owns traversal and cache context; the access coordinator owns browser/provider lifetimes. Changes should stay at the boundary that owns the failure. Avoid creating a generic scraping framework until another actual source needs one.
+The adapters own upstream interpretation; the research service owns traversal and cache context; the access coordinator owns browser/provider lifetimes, and `ApiAccess` owns the app session and transport. Changes should stay at the boundary that owns the failure. Avoid creating a generic scraping framework until another actual source needs one.

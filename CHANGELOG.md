@@ -14,6 +14,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- `ALZA_BACKEND=api` reads Alza through its Android-app API instead of a browser: calls take 0.1–1 s instead of 4–20 s, without Chromium. `alza-mcp api-session login` signs it in. The browser backend stays the default, and API failures that suggest an Alza-side change tell you to switch back.
+- On the API backend, variants link every option to its product ID, including condition alternatives and product lines; categories expose all facets; text search accepts manufacturer filters.
+
+### Fixed
+- Like-new ("Zánovní") listings report their condition.
+- `get_session_status` and early failures name the configured backend as the provider.
+
 ## [0.1.2] — 2026-05-11
 
 ### Changed

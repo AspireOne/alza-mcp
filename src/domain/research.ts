@@ -33,8 +33,14 @@ export class Research<S extends Source> implements ResearchService {
   private readonly continuations = new TtlCache<string, Continuation>(3_600_000, 1000);
   private readonly cache = new TtlCache<string, Cached>(86_400_000, 500);
   constructor(readonly config: Config, readonly access: Access<S>, private readonly catalog: Catalog<S>, private readonly cursors: Cursors) {}
+  /** Until a source serves the operation, its metadata names the configured backend. */
+  private operation(auth: AuthMode, signal?: AbortSignal, id?: string): Operation {
+    const op = new Operation(auth, this.config.timeoutMs, signal, id);
+    op.meta.provider = this.config.backend;
+    return op;
+  }
   async call(name: ToolName, input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
-    let op = new Operation(this.config.authMode, this.config.timeoutMs, signal);
+    let op = this.operation(this.config.authMode, signal);
     const started = performance.now();
     let result: Result<unknown> | undefined;
     const finish = (value: Result<unknown>) => { result = value; return value; };
@@ -53,7 +59,7 @@ export class Research<S extends Source> implements ResearchService {
         if (args.auth && args.auth !== continuation.auth) fail("CONTEXT_CHANGED", "Do not change authentication mode during a traversal.");
       }
       op.dispose();
-      op = new Operation(continuation?.auth ?? args.auth as AuthMode ?? this.config.authMode, this.config.timeoutMs, signal, op.id);
+      op = this.operation(continuation?.auth ?? args.auth as AuthMode ?? this.config.authMode, signal, op.id);
       if (name === "get_session_status") return finish({ status: "ok", data: this.access.status(), meta: op.meta });
       const outcome = await this.access.run(op, async source => op.step("research.execute", { provider: source.provider }, async () => {
         switch (name) {

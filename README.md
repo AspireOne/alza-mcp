@@ -2,9 +2,9 @@
 
 Maintained by [Matěj Pešl (AspireOne)](https://github.com/AspireOne/alza-mcp) for personal deployment. This fork is not published to npm or the MCP Registry.
 
-An unofficial, read-only Alza.cz research server for MCP clients. Search and traverse product listings, inspect product detail, and read full reviews. It runs on a home Linux server with a persistent Chromium profile. An imported Alza login is optional.
+An unofficial, read-only Alza.cz research server for MCP clients. Search and traverse product listings, inspect product detail, and read full reviews. It runs on a home Linux server and reads Alza either through a persistent Chromium profile or through Alza's mobile-app API; see [Choose a backend](#choose-a-backend). An Alza login is optional.
 
-The server attempts automatic challenge recovery, but cannot guarantee CAPTCHA-free access. It reports unsuccessful recovery, expired login, changed pagination, and incomplete parsing explicitly. It provides no checkout, order, pickup-point, or store-inventory tools.
+The browser backend attempts automatic challenge recovery, but cannot guarantee CAPTCHA-free access. Both backends report blocked access, expired login, changed pagination, and incomplete parsing explicitly. The server provides no checkout, order, pickup-point, or store-inventory tools.
 
 ## Run on a home server
 
@@ -46,6 +46,28 @@ For a 4 GB Pi sharing the host with other services, start with `ALZA_MEMORY_LIMI
 
 Use a Git-based Docker Compose application in Coolify. Coolify clones the selected branch and builds the Alza image on the deployment server; it does not need an image registry. Set `ALZA_IMAGE=<coolify-application-uuid>:main` at build time and runtime so automatic builds and deployments use the same local image tag. For automatic updates, leave the Git commit SHA unpinned, enable **Auto Deploy**, and add a signed GitHub push webhook using Coolify's **Manual Git Webhooks** endpoint and a secret. If the dashboard is private, publish only `POST /webhooks/source/github/events/manual` through an HTTPS ingress and use that public URL in GitHub; keep all other Coolify paths private. A push to the configured branch then starts a new build; verify the first webhook delivery and deployment before relying on it. Pin a commit and deploy manually when a rollback is needed. With Cloudflare Tunnel terminating public HTTPS and forwarding to the local HTTP proxy, configure an HTTP origin route in Coolify and set `ALZA_PUBLIC_URL` to the external HTTPS origin. Avoid an origin HTTPS redirect loop. Store the bearer token or Cloudflare Access settings, according to the selected HTTP auth mode, in Coolify's runtime environment and retain the same application volume across deployments.
 
+## Choose a backend
+
+`ALZA_BACKEND` selects how the server reads Alza. Both backends serve the same tools and result contract.
+
+| Backend | How it reads Alza | Account sign-in |
+|---|---|---|
+| `browser` (default) | A persistent Patchright Chromium profile, with FlareSolverr and Byparr recovery. Typical calls take 4–20 seconds. | `session import` of browser cookies |
+| `api` | Alza's Android-app API over HTTP/2, without a browser. Typical calls take 0.1–1 second and use little memory. | `api-session login` |
+
+The API backend has no browser fallback. If Alza changes or blocks its app interface, calls fail with `API_BLOCKED`, `API_REQUEST_REJECTED`, `API_CLIENT_REJECTED` or `SCHEMA_CHANGED`, and the message says to set `ALZA_BACKEND=browser`. Switching needs only that variable and a restart; each backend keeps its own sign-in in the data directory.
+
+The API backend's results differ from the browser's in these ways:
+
+- Product `availability` and `condition` use Alza's own text (`Skladem > 5 ks`, `Rozbaleno`), as listings already do, instead of schema.org URLs. New items have `condition: null`.
+- `variants` groups always link each option to its product ID. Groups have a `kind`: `parameter`, `condition` (new, like-new, used) or `product_line` (sibling models).
+- `get_category` returns every facet Alza's app offers, often more than the website shows. Text searches also accept manufacturer filters.
+- Listing prices keep upstream decimals and include the reference price when Alza shows one. Coupon offers carry Alza's label but not the website's explanatory sentence.
+- `attributes` holds Alza's own fields (`category`, `warranty`, pack and purchase limits), not the website's JSON-LD. Product names are as the app shows them and can include a promotion suffix.
+- `html_aggregate` is `null`, because there is no HTML. Ratings come from the same review statistics as on the browser backend.
+- Search results contain no sponsored inserts and pages hold 25 products instead of 24.
+- A text search cannot be restricted to a category: `query` with `category_id` fails with `UNSUPPORTED_FILTER`. Text searches support only the sort orders Alza's app advertises, which excludes `bestselling`.
+
 ## Research tools
 
 | Tool | Input and result |
@@ -55,7 +77,7 @@ Use a Git-based Docker Compose application in Coolify. Coolify clones the select
 | `search_products` | `query` or `category_id`, optional filters and sort; one complete upstream page, supported `sort_orders`, and a continuation cursor. |
 | `get_product` | Exactly one of `product_id`, `url`, or `code`; optional `sections`. Codes can match multiple conditions, so numeric IDs are preferred. |
 | `get_product_reviews` | `product_id`, optional `limit` from 1 to 50; written reviews, statistics and a continuation cursor. |
-| `get_session_status` | Local browser, account-configuration, queue and recovery state. Does not verify a login. |
+| `get_session_status` | Local backend, account-configuration, queue and recovery state. Does not verify a login. |
 
 For example, start with:
 
@@ -72,7 +94,7 @@ Then call the same tool with only `{"cursor":"<next_cursor>"}` until `exhausted`
 
 Price, manufacturer, condition, stock and parameter filters are applied by Alza. Get enum IDs and numeric range boundaries from `get_category`; numeric values use Alza's source units, which may differ from the displayed label. Navigation-only categories return their children with `listing_supported: false`, including categories that redirect to landing pages. Unsupported sorts fail with the listing's `sort_orders`. If Alza redirects a search to a category hub without listings, `CATEGORY_NOT_LISTABLE` supplies `category_id` and `suggested_categories` for a narrower search. Other unsupported filters fail explicitly. Search results retain Alza's own order and relevance, including broad matches and substitutes. A successful search does not establish that every product satisfies the intended use; inspect product identity and function before making a recommendation.
 
-Product sections are `description`, `specifications`, `variants`, `media`, `documents`, `offers`, `attributes`, `ratings`, and `reliability`. Each requested section is available, not provided by Alza, or failed. Variant selectors expose their displayed options and price differences; these do not always include another product's ID. Condition-only buttons without links are retained as `displayed_options`, with labels, descriptions, displayed prices and `selected: null` when selection is not explicitly marked. Search for another listing to retrieve its full detail. Document and media results are links, not downloaded files.
+Product sections are `description`, `specifications`, `variants`, `media`, `documents`, `offers`, `attributes`, `ratings`, and `reliability`. Each requested section is available, not provided by Alza, or failed. Variant selectors expose their displayed options and price differences; on the browser backend these do not always include another product's ID. Condition-only buttons without links are retained as `displayed_options`, with labels, descriptions, displayed prices and `selected: null` when selection is not explicitly marked. Search for another listing to retrieve its full detail. Document and media results are links, not downloaded files.
 
 Descriptions and specifications preserve Alza's source claims, including suspicious or conflicting values. Keep metric labels when comparing them: CADR and airflow are distinct claims, and identical minimum/maximum noise fields do not establish a corrected noise range.
 
@@ -108,7 +130,19 @@ Use `auth: "preferred"` for normal data requests so configured account and compa
 | `preferred` | Uses the configured account when verified. May use anonymous access with an explicit warning if the login expires or cannot survive recovery. |
 | `required` | Must verify the configured account, including on cache hits. Never silently returns anonymous pricing. |
 
-Stop the application before importing a session. The data-directory lock also enforces this. The import validates the expected numeric account ID on Alza before atomically replacing the existing account. A failed validation leaves the previous account in place.
+Account sign-in depends on the [backend](#choose-a-backend). Both need the application stopped, which the data-directory lock enforces.
+
+For the API backend, sign in through Alza's app login:
+
+```sh
+docker compose stop alza
+docker compose run --rm --no-deps -it alza api-session login --expected-user-id YOUR_NUMERIC_ID
+docker compose up -d alza
+```
+
+The command prints a sign-in link. Open it in a desktop browser and sign in to Alza. The browser then fails to open an `alza://identity?code=…` link, because no app handles it; copy that link from the browser's developer console or network panel and paste it into the command. The command checks the account ID and stores a refreshable session in `api-session.json` in the data directory. The session refreshes itself; run the command again only when calls report `AUTH_REQUIRED`. Use one session per server: a refresh can rotate the token, so two servers sharing a copied session invalidate each other.
+
+For the browser backend, import a browser session. The import validates the expected numeric account ID on Alza before atomically replacing the existing account. A failed validation leaves the previous account in place.
 
 The portable import is a Playwright/Patchright storage-state JSON file containing Alza cookies and local storage. To export from a Chromium instance with an explicitly enabled, private CDP endpoint, build this repository and run:
 
@@ -142,7 +176,8 @@ For a consistent backup, stop the application, archive the complete `/data` volu
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ALZA_DATA_DIR` | `.alza-mcp` locally, `/data` in Docker | Persistent profiles, account manifest and cursor key. |
+| `ALZA_BACKEND` | `browser` | `browser` or `api`; see [Choose a backend](#choose-a-backend). |
+| `ALZA_DATA_DIR` | `.alza-mcp` locally, `/data` in Docker | Persistent profiles, account manifest, API session and cursor key. |
 | `ALZA_AUTH_MODE` | `preferred` | Default authentication mode. |
 | `ALZA_BROWSER_CONCURRENCY` | `2` | Maximum simultaneous research operations, each with its own page. Set `1` for serialized access. Only `1` and `2` are supported. |
 | `ALZA_BROWSER_IDLE_TIMEOUT_MS` | `3600000` (one hour) | Close managed Chromium browsers after this many milliseconds without pending research requests. `0` disables idle shutdown; maximum `2147483647`. The server and recovery services stay running. Profiles persist; the next research request relaunches Chromium. Status and health checks do not reset the timer. |
@@ -171,7 +206,7 @@ File rotation keeps the active file and four archives (`alza.1.jsonl` through `a
 
 - **Docker Compose:** View live stderr with `docker compose logs -f alza`. Follow the persistent file across rotations with `docker compose exec alza tail -n 100 -F /data/logs/alza.jsonl`. Copy current and archived files to the current directory with `docker compose cp alza:/data/logs ./alza-logs`. Compose also rotates Docker's separate container logs for all three services, retaining up to three files per container with `max-size: 10m`. Those Docker logs can disappear when containers are replaced; use `/data/logs` for history across deployments.
 - **Coolify:** The application's **Logs** view shows container stderr. Persistent current and archived logs live under `/data/logs` in the application's existing data volume; read or copy them through the container terminal or the Docker host. Keep the same `/data` volume when redeploying.
-- **Local execution:** Read `ALZA_DATA_DIR/logs/alza.jsonl` or the launching terminal/MCP client's process logs. No stderr redirection is needed for file persistence. Stdout remains available for MCP stdio. File logging applies to the running server; `--help` and the offline session-import command do not initialize it.
+- **Local execution:** Read `ALZA_DATA_DIR/logs/alza.jsonl` or the launching terminal/MCP client's process logs. No stderr redirection is needed for file persistence. Stdout remains available for MCP stdio. File logging applies to the running server; `--help` and the offline sign-in commands do not initialize it.
 
 At the default `info` level, `request.started` and `request.completed` identify each tool call by `request_id`, including invalid input, partial results, errors, cache use, provider attempts and total duration. HTTP logs include status and disconnects; `http_request_id` links them to tool calls. `step.started` and `step.completed` pair by `step_id` and record queue waits, browser preparation, network attempts, detail hydration, research execution, solver commands and cleanup. Durations use milliseconds. Nested step durations overlap; do not add them together. `challenge.detected`, `challenge.solved` and `challenge.unresolved` distinguish a detected verification page from recovery success or exhaustion. The provider identifies the browser, FlareSolverr or Byparr used; solver internals are outside this server's visibility. Logs omit tool arguments, query strings, cookies, response bodies and raw browser errors.
 
