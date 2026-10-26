@@ -8,7 +8,7 @@ import {
 } from "../adapters/app-api.js";
 import type { Catalog } from "./catalog.js";
 import { PARTIAL_ONLY } from "./research.js";
-import type { Facet, ProductSection, SearchQuery, Section } from "./contracts.js";
+import { SORTS, type Facet, type ProductSection, type SearchQuery, type Section } from "./contracts.js";
 
 const RESTSERVICE = `${BASE_URL}/services/restservice.svc`;
 const COUNTRY = "CZ";
@@ -103,7 +103,9 @@ export const apiCatalog: Catalog<ApiSource> = {
     const advertised = query.filters?.manufacturers?.length ? await facets(source, 0, "PRODUCTION", term) : null;
     const { body, hash } = filterParameters(query, 0, "PRODUCTION", page, advertised);
     const list = parse(searchListSchema, envelope(await source.json(`${RESTSERVICE}/v5/search`, { ...body, searchTerm: term }), "search"), "search");
-    const sorts = sortsOf(list.sorts);
+    // The app omits bestselling from search sorts but honours its code: the order matched the website's
+    // bestselling search order apart from sponsored inserts (checked 2026-10-26).
+    const appSorts = sortsOf(list.sorts), sorts = appSorts.length ? SORTS.filter(sort => sort === "bestselling" || appSorts.includes(sort)) : appSorts;
     // An empty search advertises no orders; the requested order is then irrelevant.
     if (list.total && !sorts.includes(requested)) fail("UNSUPPORTED_FILTER", "This search does not support the requested sort order.", { sort_orders: sorts });
     const signedIn = op.meta.auth.state === "signed_in";

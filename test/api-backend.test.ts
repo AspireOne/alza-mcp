@@ -151,12 +151,13 @@ describe('app API mappings', () => {
       ['product_line', 'KRUPS Serenity', [[13348053, true], [13348054, false]]],
     ]);
   });
-  it('takes category IDs from navigation URLs rather than alias node IDs', () => {
+  it('keeps navigation categories whose URLs are bare landing slugs', () => {
     expect(categoryChildren([
+      { id: 18853682, name: 'Gaming, hry a zábava', cat_type: 'CATEGORY', url: 'https://www.alza.cz/gaming' },
       { id: 18901308, name: 'Zrnková káva', cat_type: 'CATEGORY', url: 'https://www.alza.cz/zrnkova-kava/18862971.htm' },
       { id: 0, name: 'Alza dny', cat_type: 'BOOST', url: null },
       { id: 18872611, name: "De'Longhi", cat_type: 'PRODUCER', url: 'https://www.alza.cz/automaticke-kavovary/delonghi/18857353-v8445.htm' },
-    ], ['CATEGORY'])).toEqual([{ id: 18862971, name: 'Zrnková káva', url: 'https://www.alza.cz/zrnkova-kava/18862971.htm' }]);
+    ], ['CATEGORY']).map(c => c.id)).toEqual([18853682, 18901308]);
   });
 });
 

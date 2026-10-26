@@ -66,7 +66,7 @@ The API backend's results differ from the browser's in these ways:
 - `attributes` holds Alza's own fields (`category`, `warranty`, pack and purchase limits), not the website's JSON-LD. Product names are as the app shows them and can include a promotion suffix.
 - `html_aggregate` is `null`, because there is no HTML. Ratings come from the same review statistics as on the browser backend.
 - Search results contain no sponsored inserts and pages hold 25 products instead of 24.
-- A text search cannot be restricted to a category: `query` with `category_id` fails with `UNSUPPORTED_FILTER`. Text searches support only the sort orders Alza's app advertises, which excludes `bestselling`.
+- A text search cannot be restricted to a category: `query` with `category_id` fails with `UNSUPPORTED_FILTER`.
 
 ## Research tools
 

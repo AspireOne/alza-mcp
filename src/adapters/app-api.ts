@@ -15,7 +15,6 @@ export const IN_STOCK_ANYWHERE = 1;
 const PRICE_TYPE_ALZAPLUS = 17;
 const PRICE_GROUP_BENEFIT = 5;
 const CASHBACK_ITEM = 0;
-const CATEGORY_URL_ID = /\/(\d{4,})\.htm/;
 
 /** Validates app JSON; a mismatch means Alza changed the app interface. */
 export function parse<T>(schema: z.ZodType<T>, raw: unknown, what: string): T {
@@ -149,14 +148,9 @@ export function appFacets(raw: z.infer<typeof facetsSchema>): { facets: Facet[];
 }
 
 export function categoryChildren(nodes: z.infer<typeof categoryNode>[], types: readonly string[]): Category[] {
-  // Node IDs can be navigation aliases; the URL names the listable category, as on the website.
-  // Placeholder nodes (promotional boosts, buying guides) have no category URL.
-  const found = new Map<number, Category>();
-  for (const node of nodes) {
-    const match = types.includes(node.cat_type) ? node.url?.match(CATEGORY_URL_ID) : null;
-    if (match && !found.has(Number(match[1]))) found.set(Number(match[1]), { id: Number(match[1]), name: text(node.name), url: alzaUrl(node.url!) });
-  }
-  return [...found.values()];
+  // Node IDs are the app's own category IDs; URLs are often bare landing slugs without one.
+  // Placeholder nodes (promotional boosts, buying guides) have ID 0.
+  return nodes.filter(node => node.id > 0 && types.includes(node.cat_type) && node.url).map(node => ({ id: node.id, name: text(node.name), url: alzaUrl(node.url!) }));
 }
 
 const available = (data: unknown): Section<unknown> => ({ state: "available", data });
