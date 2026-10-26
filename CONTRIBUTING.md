@@ -57,6 +57,20 @@ If Docker browsing works but native Chromium stalls before usable content appear
 
 On the investigated machine, a local `wsl-dns-sinkholes.service` reconciles only the two confirmed blocked analytics names to non-forwarded loopback, preserving the upstream blocking policy and other hosts entries. It does not change the application's browser settings or production configuration. Check that service after restarting WSL; its installation, evidence and rollback are recorded in the local `.artifacts/local-environment/remediation.md`. This machine-specific adaptation is not required or installed automatically by the project. See [WSL networking](https://learn.microsoft.com/windows/wsl/networking) and the [investigation record](docs/EFFICIENCY-IMPROVEMENTS.md#local-testing-environment).
 
+## Concurrency comparison
+
+Use `node scripts/benchmark-concurrency.mjs --dry-run` to inspect the fixed workload. A live run sends five shopping calls, repeats those five for warm-cache behavior, then reads one review page for each shortlisted product. Calls go through the HTTP MCP client with a dispatch window of five; there is no unbounded traversal. Every data result must be successful and signed in, with matching identity and valid requested sections. No memory-pressure measurements are collected by this benchmark.
+
+Set `ALZA_BROWSER_CONCURRENCY=1` or `2` in the private local configuration and restart the target server before each arm. Use matching test data and fresh server caches for each comparison. Example against the native harness:
+
+```sh
+node scripts/benchmark-concurrency.mjs --url http://127.0.0.1:3002/mcp --label serial --concurrency 1 --output .artifacts/concurrency-serial.json
+# Restart the server with concurrency 2 before the next command.
+node scripts/benchmark-concurrency.mjs --url http://127.0.0.1:3002/mcp --label parallel --concurrency 2 --output .artifacts/concurrency-parallel.json
+```
+
+The client reads the existing private local bearer token, checks the advertised server concurrency, and writes a mode-600 report without response bodies or account identifiers. Reports retain semantic hashes, section states and request IDs for comparison and server-log correlation. Output files must be new. Client duration minus provider-attempt time is only an approximation of queueing; use correlated `queue.wait` records for exact waits. Browser HTTP caches and upstream content may differ between runs, so inspect mismatches and keep failed runs rather than treating speed alone as success.
+
 ## Live verification
 
 The live validator calls the actual MCP tool interface and checks semantic results. Use `npm run validate:smoke` for one bounded call per tool. The default `validate:api` additionally follows a test category and a product's reviews to completion; its traffic depends on the current upstream result counts. It writes metadata-only JSONL under `.artifacts`; reports contain no review bodies or account cookies.

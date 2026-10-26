@@ -18,6 +18,7 @@ services:
       ALZA_ACCESS_EMAIL: ${ALZA_ACCESS_EMAIL:-}
       ALZA_PUBLIC_URL: ${ALZA_PUBLIC_URL:-}
       ALZA_AUTH_MODE: ${ALZA_AUTH_MODE:-preferred}
+      ALZA_BROWSER_CONCURRENCY: ${ALZA_BROWSER_CONCURRENCY:-2}
       ALZA_FLARESOLVERR_URL: http://flaresolverr:8191
       ALZA_BYPARR_URL: http://byparr:8191
     volumes:

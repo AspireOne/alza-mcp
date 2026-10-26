@@ -229,6 +229,27 @@ The six-call comparison is a small anonymous sample, not signed-in Pi performanc
 
 Validation passed 124 tests, including isolated real-Chromium fixtures, expanded typechecking, the production build, and a dependency audit with zero vulnerabilities. Removing fresh cache authentication temporarily caused the intended regression tests to fail; the mutation was restored. Independent functional and quality reviews found no remaining actionable issues. The final Docker image built successfully; its HTTP health, authorization, tool discovery, local status, missing-account rejection, and headed Chromium display checks passed. No Pi performance benchmark of these changes has been performed; deployment state after the push was not verified during this investigation.
 
-The cheaper native-fetch identity check remains experimental; it was not substituted for rendered identity verification. Navigation still waits for full load, and solver order/budgets, serialization, and memory limits are unchanged. Review-statistics context reuse and bounded concurrency remain later work.
+The cheaper native-fetch identity check remains experimental; it was not substituted for rendered identity verification. Navigation still waits for full load, and solver order/budgets, serialization, and memory limits are unchanged. Review-statistics context reuse remains later work. Bounded concurrency is addressed in the comparison below.
 
 The logging commit is a separate completed change. Dependency updates were previously committed in `25f1cdd`; they are background context rather than the optimization outcome.
+
+## Bounded concurrency
+
+The end goal is shorter end-to-end latency for parallel shopping batches while retaining complete requested information, verified account identity, correct per-request products/filters/cursors, cancellation and automatic recovery. Faster partial results do not qualify. Memory-pressure benchmarking is explicitly outside this comparison.
+
+The comparison uses the fixed 12-call workload in [CONTRIBUTING.md](../CONTRIBUTING.md#concurrency-comparison), matching requested data with five client calls in flight. Both admission settings use the same candidate code and separately seeded signed-in profiles. See [ARCHITECTURE.md](../ARCHITECTURE.md#concurrency-transport-and-observability) for ownership, interaction-gate, deadline and shutdown rules.
+
+An initial run with overlapping detail interactions reduced cold-batch duration from 23.3 to 15.7 seconds but returned one incomplete variant section. It was rejected. Offline Patchright testing did not establish a generic background-tab focus defect, and another unrestricted run passed; the precise cause of that first intermittent failure was not proven. The implementation therefore conservatively serializes detail interactions and tab creation while allowing independent navigation/JSON work to overlap. A real-browser regression fixture verifies that a held variant snapshot blocks peer hydration and new-page creation, while peer navigation still proceeds. Recovery waits also remain cancellable without closing another reader's tab.
+
+The guarded local comparison passed all 24 data calls across the two arms, all signed in, with no failed sections:
+
+| Phase | One active read | Two active reads | Reduction |
+| --- | --- | --- | --- |
+| Cold shopping batch | 24.73 s | 17.68 s | 28.5% |
+| Warm shopping batch | 9.28 s | 5.16 s | 44.5% |
+| Two review pages | 3.68 s | 2.16 s | 41.4% |
+| Total | 37.69 s | 24.99 s | 33.7% |
+
+Product, search and review semantic hashes matched. Category hashes differed; controlled calls without parallel peers showed the same manufacturer members in a different upstream display order, with the other category fields equal. The application preserves that source ordering rather than normalizing its output for the benchmark. This is a small matched sample, not a claim of fixed speedup on other hardware or under arbitrary future storefront changes.
+
+Artifacts retain the rejected run under `.artifacts/concurrency/`, the diagnostic repeat under `.artifacts/concurrency-diagnostic/`, and the guarded comparison and category check under `.artifacts/concurrency-guarded/`. The candidate passes 151 automated tests, typechecking, build and audit. The packaged Docker image also passed two simultaneous full-detail reads with complete variant sections. Before deployment, the Pi's current production image was tested in an isolated operator container with a separately seeded profile: all 12 calls passed, taking 51.54 seconds cold, 18.35 seconds warm and 6.93 seconds for reviews (76.81 seconds total). The live profile and Access gateway were unchanged. The user authorized commit/push deployment followed by the matching target check; its result will be reconciled here when available.

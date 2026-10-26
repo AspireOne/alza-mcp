@@ -5,20 +5,35 @@ import { hostname } from "node:os";
 import { classifyResponse, decodeJson, object, pageData } from "../adapters/html.js";
 import type { Config } from "./config.js";
 import { fail, FailureError } from "./failure.js";
-import type { Operation } from "./operation.js";
+import { OperationQueue, type Operation } from "./operation.js";
 import type { DetailSection, Document, Reader } from "./reader.js";
 import { StateStore, type Storage } from "./state.js";
 import { alzaUrl, BASE_URL, FILTER_PATH } from "./urls.js";
-import { log } from "./logger.js";
+import { log, withLogContext } from "./logger.js";
 import { verifyIdentity } from "./identity.js";
 
+type ProfileKind = "anonymous" | "account";
+interface BrowserSlot { context?: BrowserContext; starting?: Promise<BrowserContext> }
+
 export class SessionBrowser {
-  private context?: BrowserContext;
-  private kind?: "anonymous" | "account";
+  private readonly slots = new Map<ProfileKind, BrowserSlot>();
+  private activeReaders = 0;
+  private readonly interactions = new OperationQueue();
+  private readonly idle = new Set<() => void>();
+  private closing?: Promise<void>;
   constructor(private readonly config: Config, readonly store: StateStore) {}
-  async start(kind: "anonymous" | "account", timeout = 15_000): Promise<BrowserContext> {
-    if (this.context && this.kind === kind) return this.context;
-    await this.close();
+  async start(kind: ProfileKind, timeout = 15_000): Promise<BrowserContext> {
+    while (this.closing) await this.closing;
+    let slot = this.slots.get(kind);
+    if (!slot) { slot = {}; this.slots.set(kind, slot); }
+    if (slot.context) return slot.context;
+    if (slot.starting) return slot.starting;
+    const starting = this.launch(kind, timeout, slot);
+    slot.starting = starting;
+    try { return await starting; }
+    finally { if (slot.starting === starting) slot.starting = undefined; }
+  }
+  private async launch(kind: ProfileKind, timeout: number, slot: BrowserSlot): Promise<BrowserContext> {
     log.info("browser.start", { profile: kind });
     try {
       const profile = this.store.profile(kind);
@@ -35,26 +50,53 @@ export class SessionBrowser {
         await Promise.all(['SingletonLock', 'SingletonCookie', 'SingletonSocket'].map(file => rm(join(profile, file), { force: true })));
         log.info('browser.stale_lock_removed', { profile: kind });
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-      this.context = await chromium.launchPersistentContext(this.store.profile(kind), {
+      const context = await chromium.launchPersistentContext(this.store.profile(kind), {
         headless: this.config.headless, executablePath: this.config.executablePath, viewport: null,
         // The application must finish request draining, log flushing and lease release before exiting.
         handleSIGINT: false,
         locale: "cs-CZ", timezoneId: "Europe/Prague", timeout,
       });
-      this.kind = kind;
-      this.context.on("close", () => { this.context = undefined; this.kind = undefined; });
-      return this.context;
+      slot.context = context;
+      context.on("close", () => { if (slot.context === context) slot.context = undefined; });
+      return context;
     } catch (error) {
       if (error instanceof FailureError) throw error;
       throw new FailureError({ code: "BROWSER_UNAVAILABLE", message: "Chromium could not start. Check browser installation, display, profile ownership, and server resources.", retryable: true }, { cause: error });
     }
   }
-  async reader(op: Operation, kind: "anonymous" | "account", deadline: number): Promise<{ reader: Reader; dispose: () => Promise<void> }> {
+  async reader(op: Operation, kind: ProfileKind, deadline: number): Promise<{ reader: Reader; dispose: () => Promise<void> }> {
+    while (this.closing) {
+      const closing = this.closing;
+      await op.step("browser.wait_close", { provider: "browser" }, () => op.waitFor(closing, deadline));
+    }
+    op.check();
+    this.activeReaders++;
+    try {
+      const resource = await this.createReader(op, kind, deadline);
+      let disposed = false;
+      return { reader: resource.reader, dispose: async () => {
+        if (disposed) return;
+        disposed = true;
+        try { await resource.dispose(); }
+        finally { this.releaseReader(); }
+      } };
+    } catch (error) { this.releaseReader(); throw error; }
+  }
+  private releaseReader(): void {
+    this.activeReaders--;
+    if (!this.activeReaders) { for (const resolve of this.idle) resolve(); this.idle.clear(); }
+  }
+  private async createReader(op: Operation, kind: ProfileKind, deadline: number): Promise<{ reader: Reader; dispose: () => Promise<void> }> {
     op.check();
     if (Date.now() >= deadline) fail("TIMEOUT", "Primary browser budget was exhausted before startup.", { retryable: true });
-    const context = await op.step("browser.start", { provider: "browser", profile: kind, reused: !!this.context && this.kind === kind }, () => this.start(kind, Math.min(15_000, deadline - Date.now(), op.remaining())));
+    const context = await op.step("browser.start", { provider: "browser", profile: kind, reused: !!this.slots.get(kind)?.context }, () => this.start(kind, Math.min(15_000, deadline - Date.now(), op.remaining())));
     op.check();
-    const page = await op.step("browser.new_page", { provider: "browser" }, () => context.newPage());
+    const page = await withLogContext({ queue: "interaction" }, () => this.interactions.run(op,
+      () => op.step("browser.new_page", { provider: "browser" }, () => context.newPage()), deadline));
+    try {
+      op.check();
+      if (Date.now() >= deadline) fail("TIMEOUT", "Primary browser budget was exhausted while opening a page.", { retryable: true });
+    } catch (error) { await page.close().catch(() => {}); throw error; }
     const close = () => { void page.close().catch(() => {}); };
     const timer = setTimeout(close, Math.max(1, deadline - Date.now()));
     op.signal.addEventListener("abort", close, { once: true });
@@ -91,7 +133,11 @@ export class SessionBrowser {
           alzaUrl(page.url());
           verify(html);
           const detail = options?.detail;
-          if (detail?.length) await op.step("browser.hydrate_detail", { provider: "browser" }, () => hydrateDetail(page, remaining, op, detail));
+          if (detail?.length) await withLogContext({ queue: "interaction" }, () => this.interactions.run(op,
+            () => op.step("browser.hydrate_detail", { provider: "browser" }, async () => {
+              await page.bringToFront();
+              await hydrateDetail(page, remaining, op, detail);
+            }), deadline));
           if (options?.stock && typeof object(pageData(html).data).categoryTypeId === "number") {
             await op.step("browser.wait_stock", { provider: "browser" }, () => page.locator("label").filter({ hasText: "Skladem kdekoliv" }).locator('input[type="radio"]').first()
               .waitFor({ timeout: Math.min(remaining(), 5000) })).catch(() => {});
@@ -126,8 +172,27 @@ export class SessionBrowser {
     };
     return { reader, dispose: async () => { clearTimeout(timer); op.signal.removeEventListener("abort", close); await page.close().catch(() => {}); } };
   }
-  status(): unknown { return { running: !!this.context, profile: this.kind ?? null }; }
-  async close(): Promise<void> { const context = this.context; this.context = undefined; this.kind = undefined; await context?.close(); }
+  status(): unknown {
+    const profiles = [...this.slots].filter(([, slot]) => slot.context).map(([kind]) => kind);
+    return { running: profiles.length > 0, profile: profiles.length === 1 ? profiles[0] : null, profiles, active_readers: this.activeReaders };
+  }
+  async close(): Promise<void> {
+    if (this.closing) return this.closing;
+    // A solver must not close tabs owned by another request. New readers wait behind this release.
+    const closing = (async () => {
+      if (this.activeReaders) await new Promise<void>(resolve => this.idle.add(resolve));
+      const closed = await Promise.allSettled([...this.slots.values()].map(async slot => {
+        const context = slot.context ?? await slot.starting?.catch(() => undefined);
+        slot.context = undefined;
+        await context?.close();
+      }));
+      const failure = closed.find(result => result.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
+    })();
+    this.closing = closing;
+    try { await closing; }
+    finally { if (this.closing === closing) this.closing = undefined; }
+  }
 }
 
 async function hydrateDetail(page: Page, remaining: () => number, op: Operation, sections: readonly DetailSection[]): Promise<void> {
@@ -156,8 +221,8 @@ async function hydrateDetail(page: Page, remaining: () => number, op: Operation,
     try {
       await op.step("browser.detail_variant", { index: i }, async () => {
         const label = await selector.innerText();
-        await selector.click({ timeout: Math.min(remaining(), 2000) });
-        await page.locator('[role="listbox"] [role="option"]').first().waitFor({ timeout: Math.min(remaining(), 2000) });
+        await op.step("browser.variant_open", { index: i }, () => selector.click({ timeout: Math.min(remaining(), 2000) }));
+        await op.step("browser.variant_options", { index: i }, () => page.locator('[role="listbox"] [role="option"]').first().waitFor({ timeout: Math.min(remaining(), 2000) }));
         const options = await page.locator('[role="listbox"] [role="option"]').evaluateAll(nodes => nodes.map(n => ({ label: n.textContent?.trim(), selected: n.getAttribute('aria-selected') === 'true' })));
         groups.push({ label, options });
         await page.keyboard.press('Escape');

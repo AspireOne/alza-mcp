@@ -7,6 +7,7 @@ export interface Config {
   headless: boolean;
   executablePath?: string;
   authMode: AuthMode;
+  browserConcurrency: number;
   timeoutMs: number;
   primaryMs: number;
   flareMs: number;
@@ -19,11 +20,14 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
   if (env.ALZA_BASE_URL && env.ALZA_BASE_URL.replace(/\/$/, "") !== "https://www.alza.cz") fail('CONFIGURATION_ERROR', "Only https://www.alza.cz is supported in v0.2.");
   const authMode = env.ALZA_AUTH_MODE ?? "preferred";
   if (!["preferred", "required", "anonymous"].includes(authMode)) fail('CONFIGURATION_ERROR', "Invalid ALZA_AUTH_MODE.");
+  const browserConcurrency = env.ALZA_BROWSER_CONCURRENCY ?? "2";
+  if (browserConcurrency !== "1" && browserConcurrency !== "2") fail('CONFIGURATION_ERROR', "ALZA_BROWSER_CONCURRENCY must be 1 or 2.");
   return {
     dataDir: resolve(env.ALZA_DATA_DIR ?? ".alza-mcp"),
     headless: env.ALZA_HEADLESS === "true",
     executablePath: env.ALZA_BROWSER_EXECUTABLE,
     authMode: authMode as AuthMode,
+    browserConcurrency: Number(browserConcurrency),
     timeoutMs: 120_000, primaryMs: 30_000, flareMs: 50_000, byparrMs: 30_000, cooldownMs: 300_000,
     flareUrl: serviceUrl(env.ALZA_FLARESOLVERR_URL), byparrUrl: serviceUrl(env.ALZA_BYPARR_URL),
   };

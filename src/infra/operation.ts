@@ -36,6 +36,25 @@ export class Operation {
     });
   }
   remaining(max = Infinity): number { this.check(); return Math.max(1, Math.min(max, this.deadline - Date.now())); }
+  async waitFor<T>(work: Promise<T>, deadline = this.deadline): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    let abort = () => {};
+    try {
+      const result = await Promise.race([work, new Promise<T>((_, reject) => {
+        abort = () => { try { this.check(); } catch (error) { reject(error); } };
+        this.signal.addEventListener("abort", abort, { once: true });
+        try {
+          this.check();
+          const remaining = Math.min(deadline, this.deadline) - Date.now();
+          if (remaining <= 0) fail("TIMEOUT", "The operation deadline was reached while waiting for browser release.", { retryable: true });
+          timer = setTimeout(() => reject(new FailureError({ code: "TIMEOUT", message: "The operation deadline was reached while waiting for browser release.", retryable: true })), remaining);
+        } catch (error) { reject(error); }
+      })]);
+      this.check();
+      if (Date.now() >= deadline) fail("TIMEOUT", "The operation deadline was reached while waiting for browser release.", { retryable: true });
+      return result;
+    } finally { clearTimeout(timer); this.signal.removeEventListener("abort", abort); }
+  }
   check(): void {
     if (this.signal.aborted) {
       if (this.signal.reason instanceof FailureError) throw this.signal.reason;
@@ -46,13 +65,20 @@ export class Operation {
   dispose(): void { clearTimeout(this.timer); }
 }
 
-/** A single owner prevents browser navigation and account contexts from interleaving. */
+/** Reserve each active slot through FIFO handoff so new arrivals cannot bypass waiters. */
 export class OperationQueue {
-  private running = false;
+  private activeCount = 0;
   private readonly waiting: Array<() => void> = [];
-  async run<T>(op: Operation, work: () => Promise<T>): Promise<T> {
-    op.check();
-    if (this.running) {
+  constructor(readonly concurrency = 1) {
+    if (concurrency !== 1 && concurrency !== 2) fail("CONFIGURATION_ERROR", "Browser concurrency must be 1 or 2.");
+  }
+  async run<T>(op: Operation, work: () => Promise<T>, deadline = op.deadline): Promise<T> {
+    const check = () => {
+      op.check();
+      if (Date.now() >= deadline) fail("TIMEOUT", "The operation deadline was reached while waiting for the browser.", { retryable: true });
+    };
+    check();
+    if (this.activeCount >= this.concurrency) {
       if (this.waiting.length >= 8) fail("BUSY", "The browser queue is full.", { retryable: true, retry_after_ms: 5000 });
       await op.step("queue.wait", { queue_size: this.size }, () => new Promise<void>((resolve, reject) => {
         let timer: NodeJS.Timeout;
@@ -60,16 +86,17 @@ export class OperationQueue {
         const remove = () => { const i = this.waiting.indexOf(ready); if (i >= 0) this.waiting.splice(i, 1); cleanup(); };
         const abort = () => { remove(); try { op.check(); } catch (error) { reject(error); } };
         const ready = () => { cleanup(); resolve(); };
-        timer = setTimeout(() => { remove(); reject(new FailureError({ code: "TIMEOUT", message: "The operation deadline was reached while waiting for the browser.", retryable: true })); }, op.remaining());
+        timer = setTimeout(() => { remove(); reject(new FailureError({ code: "TIMEOUT", message: "The operation deadline was reached while waiting for the browser.", retryable: true })); }, Math.min(op.remaining(), deadline - Date.now()));
         op.signal.addEventListener("abort", abort, { once: true });
         this.waiting.push(ready);
       }));
-    } else this.running = true;
-    try { op.check(); return await work(); }
+    } else this.activeCount++;
+    try { check(); return await work(); }
     finally {
       const next = this.waiting.shift();
-      if (next) next(); else this.running = false;
+      if (next) next(); else this.activeCount--;
     }
   }
-  get size(): number { return this.waiting.length + Number(this.running); }
+  get active(): number { return this.activeCount; }
+  get size(): number { return this.waiting.length + this.activeCount; }
 }

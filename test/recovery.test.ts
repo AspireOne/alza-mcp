@@ -27,6 +27,23 @@ async function setup(challenge = false, onCommand: () => void = () => {}) {
   return { access, commands };
 }
 describe('automatic recovery', () => {
+  it('cancels a recovery wait without waiting for another reader to release the browser', async () => {
+    const { access, commands } = await setup();
+    let release!: () => void, entered!: () => void;
+    const draining = new Promise<void>(resolve => { release = resolve; });
+    const waiting = new Promise<void>(resolve => { entered = resolve; });
+    vi.spyOn(access.browser, 'close').mockImplementation(() => { entered(); return draining; });
+    const parent = new AbortController(), op = new Operation('anonymous', 120_000, parent.signal);
+    const pending = access.run(op, r => r.page('https://www.alza.cz'));
+    const rejected = expect(pending).rejects.toMatchObject({ failure: { code: 'CANCELLED' } });
+    try {
+      await waiting;
+      parent.abort();
+      await rejected;
+      expect(commands).toEqual([]);
+      expect(access.status()).toMatchObject({ active_requests: 0 });
+    } finally { release(); op.dispose(); }
+  });
   it('recovers a challenge discovered during the target read after lazy browser preparation', async () => {
     const { access } = await setup();
     let disposed = false;

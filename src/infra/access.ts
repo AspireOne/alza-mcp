@@ -11,13 +11,13 @@ import { log } from "./logger.js";
 const RECOVERABLE = new Set(["CHALLENGE_UNRESOLVED", "NETWORK_ERROR", "TIMEOUT", "BROWSER_UNAVAILABLE", "RECOVERY_PROVIDER_UNAVAILABLE", "RECOVERY_UNSUPPORTED"]);
 export class AccessCoordinator implements Access {
   readonly browser: SessionBrowser;
-  private readonly queue = new OperationQueue();
+  private readonly queue: OperationQueue;
   private readonly cooldowns = new Map<string, number>();
   private lastFailure: ReturnType<typeof failureOf> | null = null;
   private closed = false;
   private readonly active = new Set<Promise<unknown>>();
   private closing?: Promise<void>;
-  constructor(readonly config: Config, readonly store: StateStore) { this.browser = new SessionBrowser(config, store); }
+  constructor(readonly config: Config, readonly store: StateStore) { this.queue = new OperationQueue(config.browserConcurrency); this.browser = new SessionBrowser(config, store); }
   run<T>(op: Operation, work: (reader: Reader) => Promise<T>, expectedContext?: string): Promise<T> {
     const pending = this.execute(op, work, expectedContext);
     this.active.add(pending);
@@ -98,7 +98,7 @@ export class AccessCoordinator implements Access {
           } else {
             // Persist and release Chromium before starting another browser on
             // memory-constrained hosts. The next primary request reopens it.
-            await op.step("browser.release", { provider }, () => this.browser.close());
+            await op.step("browser.release", { provider }, () => op.waitFor(this.browser.close()));
             const account = kind === "account" ? this.store.account : undefined;
             const storage = account ? await this.store.importedStorage() : undefined;
             const cookies = storage?.cookies.map(({ expires, ...cookie }) => ({ ...cookie, ...(expires > 0 ? { expiry: Math.floor(expires) } : {}) }));
@@ -140,7 +140,7 @@ export class AccessCoordinator implements Access {
       throw new FailureError(failure);
     });
   }
-  status(): unknown { return { browser: this.browser.status(), queue_size: this.queue.size, account_configured: !!this.store.account, last_failure: this.lastFailure, cooldown_until: Math.max(0, ...this.cooldowns.values()), recovery: { flaresolverr: this.config.flareUrl ? "configured" : "disabled", byparr: this.config.byparrUrl ? "configured" : "disabled" } }; }
+  status(): unknown { return { browser: this.browser.status(), queue_size: this.queue.size, active_requests: this.queue.active, browser_concurrency: this.queue.concurrency, account_configured: !!this.store.account, last_failure: this.lastFailure, cooldown_until: Math.max(0, ...this.cooldowns.values()), recovery: { flaresolverr: this.config.flareUrl ? "configured" : "disabled", byparr: this.config.byparrUrl ? "configured" : "disabled" } }; }
   close(beforeRelease?: () => Promise<void>): Promise<void> {
     this.closed = true;
     this.closing ??= (async () => { await Promise.allSettled([...this.active]); try { await this.browser.close(); } finally { try { await beforeRelease?.(); } finally { await this.store.close(); } } })();
