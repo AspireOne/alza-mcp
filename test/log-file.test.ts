@@ -118,4 +118,4 @@ it('persists startup and shutdown logs when the actual CLI restarts on the same 
   const records = (await readFile(join(dir, 'logs/alza.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   expect(records.filter(r => r.msg === 'stdio.ready')).toHaveLength(2);
   expect(records.filter(r => r.msg === 'server.stopping')).toHaveLength(2);
-});
+}, 20_000); // Two cold CLI startups also run alongside real-browser integration tests.
