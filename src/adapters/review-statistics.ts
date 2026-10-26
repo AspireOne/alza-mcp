@@ -14,8 +14,8 @@ const complaintSchema = z.object({
 const purchaseCountSchema = z.object({ purchaseCountFormatted: z.string().nullable(), showPurchaseCount: z.boolean() });
 
 export function reviewStatisticsUrl(html: string, id: number): string {
-  if (object(pageData(html).data).cid !== id) fail("PRODUCT_ID_MISMATCH", "The review-statistics page does not describe the requested product ID.");
   const $ = load(html);
+  if (object(pageData($).data).cid !== id) fail("PRODUCT_ID_MISMATCH", "The review-statistics page does not describe the requested product ID.");
   for (const el of $('[data-api-url]').toArray()) {
     let context: URL;
     try { context = new URL($(el).attr('data-api-url')!); } catch { continue; }

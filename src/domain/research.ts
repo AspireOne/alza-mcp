@@ -68,9 +68,9 @@ export class Research {
           case "get_category": return { data: await this.cached(reader, op, `category:${args.category_id}`, 86_400_000, async () => {
             const doc = await reader.page(searchUrl({ category_id: args.category_id as number }));
             const $ = load(doc.html);
-            if (pageData(doc.html).categoryId !== args.category_id) fail("CATEGORY_ID_MISMATCH", "The page does not describe the requested category.");
-            const sorts = sortOrders(doc.html);
-            return { id: args.category_id, name: $("h1").first().text().trim(), url: doc.url, children: categories(doc.html, true), facets: facets(doc.html), manufacturers: manufacturers(doc.html), sort_orders: sorts, listing_supported: sorts.length > 0 };
+            if (pageData($).categoryId !== args.category_id) fail("CATEGORY_ID_MISMATCH", "The page does not describe the requested category.");
+            const sorts = sortOrders($);
+            return { id: args.category_id, name: $("h1").first().text().trim(), url: doc.url, children: categories($, true), facets: facets($), manufacturers: manufacturers($), sort_orders: sorts, listing_supported: sorts.length > 0 };
           }) };
           default: return fail("INVALID_INPUT", "Unknown research tool.");
         }
@@ -110,19 +110,18 @@ export class Research {
     const page = previous?.page ?? 1;
     const result = await this.cached(reader, op, `search:${JSON.stringify(query)}:${page}`, 60_000, async () => {
       const doc = await reader.page(searchUrl(query), { stock: query.filters?.in_stock });
-      const bootstrap = pageData(doc.html), data = object(bootstrap.data);
-      const sorts = sortOrders(doc.html);
+      const $ = load(doc.html), bootstrap = pageData($), data = object(bootstrap.data);
+      const sorts = sortOrders($);
       if (data.isSearch === true && data.isEmpty === true && page === 1) {
         if (query.filters?.facets?.length || query.filters?.manufacturers?.length) fail("UNSUPPORTED_FILTER", "This empty search does not advertise the requested facet or manufacturer filters.");
         return { products: [], total: 0, next: false, effectiveUrl: doc.url, sorts };
       }
-      const $ = load(doc.html);
       if (!sorts.length && !$(".browsingitem").length && $('[data-testid="category-tiles"]').length) {
-        const suggested = categories(doc.html, true);
+        const suggested = categories($, true);
         if (typeof bootstrap.categoryId !== "number" || !suggested.length) fail("SCHEMA_CHANGED", "Alza's category navigation could not be identified.");
         fail("CATEGORY_NOT_LISTABLE", "Alza redirected this search to a category hub without product listings. Search a child category instead.", { category_id: bootstrap.categoryId, suggested_categories: suggested });
       }
-      const body = filterRequest(doc.html, query, page), effectiveUrl = `${doc.url.split("#")[0]}${body.hash}`;
+      const body = filterRequest($, query, page), effectiveUrl = `${doc.url.split("#")[0]}${body.hash}`;
       const signedIn = op.meta.auth.state === 'signed_in';
       const parsed = reader.canPost ? parseFilter(await reader.json(`${BASE_URL}${FILTER_PATH}`, body), page, signedIn) : parseRenderedSearch((await reader.page(effectiveUrl)).html, page, query, signedIn);
       return { ...parsed, effectiveUrl, sorts };

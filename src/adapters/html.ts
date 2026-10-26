@@ -1,5 +1,8 @@
-import { load } from "cheerio";
+import { load, type CheerioAPI } from "cheerio";
 import { fail } from "../infra/failure.js";
+
+export type HtmlSource = string | CheerioAPI;
+export function htmlDocument(source: HtmlSource): CheerioAPI { return typeof source === "string" ? load(source) : source; }
 
 export function text(value: string): string { return value.replace(/\s+/g, " ").trim(); }
 export function object(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -7,8 +10,8 @@ export function string(value: unknown): string | null { return typeof value === 
 export function number(value: unknown): number | null { return typeof value === "number" && Number.isFinite(value) ? value : null; }
 
 /** Extract JSON assignments without evaluating any script supplied by the shop. */
-export function assignment(html: string, name: string): Record<string, unknown> | null {
-  const $ = load(html);
+export function assignment(html: HtmlSource, name: string): Record<string, unknown> | null {
+  const $ = htmlDocument(html);
   for (const el of $("script").toArray()) {
     const source = $(el).text();
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -33,19 +36,19 @@ export function assignment(html: string, name: string): Record<string, unknown> 
   }
   return null;
 }
-export function pageData(html: string): Record<string, unknown> {
+export function pageData(html: HtmlSource): Record<string, unknown> {
   const data = assignment(html, "_pageData");
   if (!data || typeof data.isUserLogged !== "boolean") fail("SCHEMA_CHANGED", "Alza account/page bootstrap data was not recognized.");
   return data;
 }
-export function accountFromHtml(html: string): { loggedIn: boolean; userId: string | null } {
+export function accountFromHtml(html: HtmlSource): { loggedIn: boolean; userId: string | null } {
   const data = pageData(html);
   const id = string(data.userId);
   if (data.isUserLogged === true && (!id || !/^\d+$/.test(id))) fail("AUTH_UNVERIFIED", "Alza reports a signed-in session without a recognized account identity.");
   return { loggedIn: data.isUserLogged === true, userId: id || null };
 }
-export function jsonLd(html: string, type: string): Record<string, unknown> | null {
-  const $ = load(html);
+export function jsonLd(html: HtmlSource, type: string): Record<string, unknown> | null {
+  const $ = htmlDocument(html);
   function find(value: unknown): Record<string, unknown> | null {
     if (Array.isArray(value)) { for (const item of value) { const match = find(item); if (match) return match; } return null; }
     const obj = object(value), types = obj["@type"];
@@ -61,8 +64,8 @@ export function jsonLd(html: string, type: string): Record<string, unknown> | nu
   if (malformed) fail("PARSE_ERROR", `Alza supplied malformed structured data for ${type}.`);
   return null;
 }
-export function classifyResponse(status: number | null, headers: Record<string, string>, html: string): void {
-  const $ = load(html);
+export function classifyResponse(status: number | null, headers: Record<string, string>, html: HtmlSource): void {
+  const $ = htmlDocument(html);
   const title = $("title").text().trim();
   const challenge = headers["cf-mitigated"] === "challenge" || /^(?:Just a moment|Attention Required)/i.test(title) ||
     (!!$("#challenge-running, #cf-challenge-running, #challenge-form, #cf-chl-widget").length && !$(".browsingitem, #detailItem").length) ||

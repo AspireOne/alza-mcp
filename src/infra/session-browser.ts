@@ -2,7 +2,7 @@ import { chromium, type BrowserContext, type Page } from "patchright";
 import { readlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { hostname } from "node:os";
-import { classifyResponse, decodeJson, object, pageData } from "../adapters/html.js";
+import { classifyResponse, decodeJson, htmlDocument, object, pageData, type HtmlSource } from "../adapters/html.js";
 import type { Config } from "./config.js";
 import { fail, FailureError } from "./failure.js";
 import { OperationQueue, type Operation } from "./operation.js";
@@ -120,7 +120,7 @@ export class SessionBrowser {
     };
     const expected = kind === "account" ? this.store.account : undefined;
     let verified = false;
-    const verify = (html: string) => { op.meta.auth.state = verifyIdentity(html, expected); verified = true; };
+    const verify = (html: HtmlSource) => { op.meta.auth.state = verifyIdentity(html, expected); verified = true; };
     const reader: Reader = {
       provider: "browser", canPost: true, context: expected ? `account:${expected.generation}` : "anonymous",
       verify: async () => { if (!verified) await reader.page(BASE_URL); },
@@ -131,16 +131,17 @@ export class SessionBrowser {
           log.info("upstream.response", { request_id: op.id, provider: "browser", status: response?.status() ?? null });
           const headers = response ? await response.allHeaders() : {};
           let html = await page.content();
-          classifyResponse(response?.status() ?? null, headers, html);
+          const initial = htmlDocument(html);
+          classifyResponse(response?.status() ?? null, headers, initial);
           alzaUrl(page.url());
-          verify(html);
+          verify(initial);
           const detail = options?.detail;
           if (detail?.length) await withLogContext({ queue: "interaction" }, () => this.interactions.run(op,
             () => op.step("browser.hydrate_detail", { provider: "browser" }, async () => {
               await page.bringToFront();
               await hydrateDetail(page, remaining, op, detail);
             }), deadline));
-          if (options?.stock && typeof object(pageData(html).data).categoryTypeId === "number") {
+          if (options?.stock && typeof object(pageData(initial).data).categoryTypeId === "number") {
             await op.step("browser.wait_stock", { provider: "browser" }, () => page.locator("label").filter({ hasText: "Skladem kdekoliv" }).locator('input[type="radio"]').first()
               .waitFor({ timeout: Math.min(remaining(), 5000) })).catch(() => {});
           }
@@ -217,21 +218,26 @@ async function hydrateDetail(page: Page, remaining: () => number, op: Operation,
   }, { parametersNeeded, descriptionNeeded }, { timeout: Math.min(remaining(), 5000) })).catch(() => {});
   if (!variantsNeeded) return;
   const selectors = page.locator('[data-testid="detailVariantSelectComponentOpenOptionsButton"]');
-  const groups: unknown[] = [];
-  for (let i = 0; i < await selectors.count(); i++) {
+  const readLabels = () => op.step("browser.variant_controls", {}, () => selectors.evaluateAll(nodes => nodes.map(node => (node as HTMLElement).innerText)));
+  let labels = await readLabels();
+  const groups: { label: string; options: { label: string | undefined; selected: boolean }[] }[] = [];
+  for (let i = 0; i < labels.length; i++) {
     const selector = selectors.nth(i);
     try {
       await op.step("browser.detail_variant", { index: i }, async () => {
-        const label = await selector.innerText();
+        const label = labels[i]!;
         await op.step("browser.variant_open", { index: i }, () => selector.click({ timeout: Math.min(remaining(), 2000) }));
         await op.step("browser.variant_options", { index: i }, () => page.locator('[role="listbox"] [role="option"]').first().waitFor({ timeout: Math.min(remaining(), 2000) }));
         const options = await page.locator('[role="listbox"] [role="option"]').evaluateAll(nodes => nodes.map(n => ({ label: n.textContent?.trim(), selected: n.getAttribute('aria-selected') === 'true' })));
         groups.push({ label, options });
         await page.keyboard.press('Escape');
       });
-    } catch { break; }
+      // Recheck after the batch: lazy controls can appear or change during interaction.
+      // Query through Patchright so closed shadow roots retain the same semantics.
+      if (i === labels.length - 1) labels = await readLabels();
+    } catch { return; }
   }
-  if (groups.length && groups.length === await selectors.count()) await page.evaluate(groups => {
+  if (groups.length && groups.length === labels.length && groups.every((group, i) => group.label === labels[i])) await page.evaluate(groups => {
     const node = document.createElement('script'); node.type = 'application/json'; node.id = 'alza-mcp-variant-options'; node.textContent = JSON.stringify(groups); document.body.append(node);
   }, groups);
   // Missing sections are reported by the parser; a slow optional section is not a fake empty result.

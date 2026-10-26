@@ -98,3 +98,70 @@ it('retains downloads loaded by the parameters tab in a documents-only request',
   expect(await h.research.call('get_product', { product_id: 42, sections: ['documents'] })).toMatchObject({ status: 'ok', data: { sections: { documents: { state: 'available', data: expect.arrayContaining([{ url: 'https://www.alza.cz/specifications.pdf', title: 'Specifications' }, { url: 'https://www.alza.cz/manual.pdf', title: 'Manual' }]) } } } });
   expect(h.captures.at(-1)).not.toContain('data-variants-opened');
 }, 30_000);
+
+it('hydrates tabs and variant controls inside closed shadow roots', async () => {
+  const h = await harness(html + `<script>
+    for (const selector of ['#hlTabParameters', 'a[href="#description"]', '[data-testid="detailVariantSelectComponentOpenOptionsButton"]']) {
+      const host = document.createElement('div'); document.body.append(host);
+      host.attachShadow({mode:'closed'}).append(document.querySelector(selector));
+    }
+  </script>`);
+  expect(await h.research.call('get_product', { product_id: 42 })).toMatchObject({ status: 'ok', data: { sections: {
+    description: { state: 'available', data: { full_text: expect.stringContaining('Full description') } },
+    specifications: { state: 'available', data: [{ name: 'Capacity', value: '1TB' }] },
+    variants: { state: 'available', data: { groups: [{ label: 'Colour', options: [{ label: 'Black', selected: true }] }] } },
+  } } });
+}, 30_000);
+
+it('loads sections whose handlers require trusted browser clicks', async () => {
+  const h = await harness(html.replaceAll('onclick="document.querySelector', 'onclick="if(!event.isTrusted)return;document.querySelector'));
+  expect(await h.research.call('get_product', { product_id: 42, sections: ['description', 'specifications'] })).toMatchObject({ status: 'ok', data: { sections: {
+    description: { state: 'available', data: { full_text: expect.stringContaining('Full description') } },
+    specifications: { state: 'available', data: [{ name: 'Capacity', value: '1TB' }] },
+  } } });
+}, 30_000);
+
+it('rechecks identity from the final document when hydration changes the account state', async () => {
+  const h = await harness(html + `<script>
+    document.querySelector('#hlTabParameters').addEventListener('click', () => {
+      document.scripts[0].textContent = 'var _pageData = ' + JSON.stringify({isUserLogged:true,userId:'999',data:{cid:42}}) + ';';
+    });
+  </script>`);
+  expect(await h.research.call('get_product', { product_id: 42, sections: ['specifications'] })).toMatchObject({ status: 'error', error: { code: 'AUTH_ACCOUNT_MISMATCH' } });
+}, 30_000);
+
+// TODO: Mock a storefront that re-renders controls and adds another group after closing a menu.
+const changingVariants = html + `<script>
+  const original = document.querySelector('[data-testid="detailVariantSelectComponentOpenOptionsButton"]');
+  const controls = document.createElement('div'); controls.className = 'detailVariants'; original.replaceWith(controls);
+  function addGroup(label, value) {
+    const button = original.cloneNode(true); button.textContent = label;
+    button.onclick = () => {
+      document.querySelector('#variantOptions').innerHTML = '<div role="listbox"><div role="option" aria-selected="true">' + value + '</div></div>';
+      const replacement = button.cloneNode(true); replacement.onclick = button.onclick; button.replaceWith(replacement);
+    };
+    controls.append(button);
+  }
+  addGroup('Colour', 'Black'); addGroup('Capacity', '1TB');
+  let closed = 0;
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    document.querySelector('#variantOptions').replaceChildren();
+    if (++closed === 2) addGroup('Pack', 'Two');
+  });
+</script>`;
+
+it('retains every variant group when controls re-render and a later group appears', async () => {
+  const h = await harness(changingVariants);
+  expect(await h.research.call('get_product', { product_id: 42, sections: ['variants'] })).toMatchObject({ status: 'ok', data: { sections: { variants: { state: 'available', data: { groups: [
+    { label: 'Colour', options: [{ label: 'Black', selected: true }] },
+    { label: 'Capacity', options: [{ label: '1TB', selected: true }] },
+    { label: 'Pack', options: [{ label: 'Two', selected: true }] },
+  ] } } } } });
+}, 30_000);
+
+it('reports incomplete variants when the inspected group labels change during hydration', async () => {
+  const h = await harness(changingVariants.replace("if (++closed === 2) addGroup('Pack', 'Two');", "if (++closed === 2) { controls.firstElementChild.textContent = 'Material'; controls.insertAdjacentHTML('beforeend', '<a href=/product-d43.htm>Another product</a>'); }"));
+  expect(await h.research.call('get_product', { product_id: 42, sections: ['variants'] })).toMatchObject({ status: 'partial', data: { sections: { variants: { state: 'failed' } } }, errors: [{ code: 'SECTION_INCOMPLETE' }] });
+  expect(h.captures.at(-1)).not.toContain('alza-mcp-variant-options');
+}, 30_000);

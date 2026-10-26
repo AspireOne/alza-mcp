@@ -2,7 +2,7 @@
 
 This is the canonical record of the browser/Docker efficiency investigation: requirements, evidence, experiments, unresolved questions, and the direction for further work. Update the relevant sections as findings change. Deployment and logging instructions belong in the [README](../README.md#configuration-and-local-development); architectural contracts belong in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-Last reconciled with the repository, local environment fixes, and a production log snapshot on 2026-10-26, including logging commit `f25433f` and efficiency commit `ab937bb`. Historical inspection and local experiments preceded that implementation; the logged shopping session below used the new logging.
+Last reconciled on 2026-10-26 with the production logs, local environment fixes, two-request concurrency, and the Pi/desktop profiling and optimization comparisons below. The logged shopping session used logging commit `f25433f`; it preceded the efficiency changes.
 
 ## Goal and constraints
 
@@ -13,7 +13,7 @@ Improve response speed and resource efficiency while preserving the deployed sys
 - Persist the managed browser's disk state across restarts and container replacements. Do not confuse a selective cookie/storage export with a complete browser profile or a portable machine identity.
 - Preserve complete product sections, filters, pagination, identity validation, cancellation, and explicit failures. Faster incomplete results are not an improvement.
 - Prefer a simple, reproducible setup with user-specific configuration outside source code.
-- Prefer the always-on home server. Desktop hosting remains an alternative if evidence warrants it.
+- Optimize the existing Pi deployment. Moving browser computation to the user's German server through a Tailscale home exit node is deferred.
 - Treat RAM pressure as a hypothesis to investigate, not an established primary bottleneck. Correlate resource observations with actual slow requests before changing limits or prioritizing RAM reductions.
 
 The existing Pi deployment is the reliability baseline. The user reports that it has worked very well over an extended period without CAPTCHA interruptions; slow requests are the known issue. Do not start by rebuilding or re-proving that baseline, removing its solvers, or replacing its browser stack.
@@ -266,3 +266,46 @@ All 12 target calls passed, with signed-in data and complete requested sections:
 Product, review and category hashes matched across the Pi arms. The free-text search returned 24 valid products in both but its hash changed between the original runs. A controlled serial/concurrent recheck on the current candidate returned identical search data; the earlier difference did not reproduce. This does not establish the exact historical source of that hash change. The gateway itself was not benchmarked: the operator check exercised HTTP MCP and browser/provider behavior through a private SSH forward.
 
 A final startup audit found that a caller with little primary budget could shorten a shared launch and fail a healthy follower. Shared startup now owns its fixed launch budget, while each reader bounds its own wait independently. Regression tests cover both a short-budget leader with a healthy follower and shutdown after the sole launch caller cancels. The old deadline coupling fails those tests. The final suite passes 153 tests. The final startup fix was pushed as `66c27a8`; the healthy production container again matched all expected module hashes and advertised concurrency 2. Repeating all 12 calls on that exact final image passed with complete signed-in results: 42.14 seconds cold, 12.77 seconds warm and 4.56 seconds for reviews, totaling 59.47 seconds (22.6% below the original serial baseline). The two successful target totals, 59.21 and 59.47 seconds, support the overall improvement while showing phase-level timing variation. Temporary operator containers and profile volumes are removed after collecting their reports. Target reports, module verification, controlled search data and operator cleanup records are retained under Git-ignored `.artifacts/concurrency/`. No memory-pressure measurements were added to this comparison.
+
+## Pi versus desktop diagnosis
+
+A subsequent diagnostic compared identical headed Docker environments on the desktop (Ryzen 7 7735HS, x86-64) and Pi (four Cortex-A76 cores, ARM64), using Node 24.22.1, Patchright 1.64.1 and Chromium 156.0.8078.4. It profiled two sequential signed-in product reads with API timing hooks and Node CPU profiles. All diagnostic reads retained successful signed-in results and complete variants. Production code and settings were unchanged; the probes used isolated profiles.
+
+| Two profiled product reads | Desktop | Pi |
+| --- | --- | --- |
+| Total elapsed time | 14.67 s | 32.33 s |
+| Detail hydration | 5.72 s | 19.96 s |
+| Explicit locator counts within hydration | 2.18 s | 12.11 s |
+| Node CPU time, all process threads | 5.41 s | 8.33 s |
+| Renderer task duration | 11.31 s | 27.52 s |
+
+These are diagnostic, instrumented timings rather than a replacement for the matched shopping benchmark. Hydration accounts for approximately 81% of the additional elapsed time in these two reads; explicit locator counts alone account for approximately 56%. These percentages locate elapsed time, not removable overhead: implementation experiments moved part of that delay from a removed count into the next click or selector read while Chromium remained busy. Parent/child spans overlap and must not be added. Full-load navigation was approximately 3–4 seconds on both platforms. Browser task duration was 2.43 times higher on the Pi; Node CPU time was 1.54 times higher. Final top-document element counts matched (2,949 and 2,802), and final HTML sizes were almost identical. Initial Pi HTML snapshots were smaller, consistent with more post-load work still pending.
+
+The largest individual gap was the first parameter-tab locator count: 4.08/5.08 seconds on the Pi versus 0.09/0.18 seconds locally. Bringing the page forward was negligible by comparison, and section-readiness waits did not exhaust their five-second limit. Client-minus-server timing in the preceding benchmark was only about 58 ms per call on the Pi versus 19 ms locally, ruling out the SSH forward as the main gap.
+
+Installed Patchright source shows that ordinary counts can deeply describe the document, discover closed shadow roots, resolve handles and issue many browser-control calls. A matching offline fixture of roughly 6,000 elements took 0.96 seconds locally versus 1.70 seconds on the Pi for the read-only hydration sequence, without network traffic or application code. A deep document response was approximately 1.47 MB. This establishes nontrivial DOM-dependent framework overhead, but does not alone explain the much larger live-page delays.
+
+A low-overhead hook on the actual in-process CDP session traced approximately two dozen commands in a first live count. Many simple commands took 100–900 ms while the live page was active, with relatively little Node CPU during those waits. An additional control on the Pi returned the same parameter-tab count of one through an in-page DOM query in 97.5 ms, while the subsequent Patchright locator count took 3,356 ms. A cheap scalar evaluation before a count did not eliminate the count delay. The evidence points to chatty selector machinery interacting with ongoing browser work, rather than a single unconditional sleep. Chromium's inspected `DOM.describeNode` implementation does not explicitly force a style/layout flush; do not claim that as the proven cause.
+
+The Pi reported no application CPU quota, 2.4 GHz operation and no throttling before the probes. Memory-pressure analysis was explicitly excluded. CPU profiles also show HTML parsing and garbage collection as secondary work. Slower requests do not establish CPU or RAM exhaustion.
+
+### Optimization decision and validation
+
+The selected pass reuses parsed HTML within a capture and batches variant-control discovery. It retains the original browser clicks, scrolling, readiness checks, interaction gate and two-request admission limit. Parsed-document ownership follows the [source-fidelity contract](../ARCHITECTURE.md#completeness-and-source-fidelity). Variant tests cover closed shadow roots, re-rendered controls, late groups and changed labels; identity tests reject using an earlier capture to authorize a changed final document.
+
+Direct DOM tab activation with browser-click fallback was also tested. Its full Pi workload took 55.84 seconds versus 57.23 seconds for the simpler selected implementation. Only 0.39 seconds separated their cold phases, where tab activation occurs; the other difference was in unchanged warm/review work. That sample does not justify another interaction path, so the extra mechanism was removed.
+
+The matched comparison used the existing deployed image and an isolated candidate with the compiled application mounted into the same image. Each arm imported a separate profile and called the real research service with the same twelve-call shopping schedule, including five concurrent client calls per shopping batch. These timings exclude MCP transport and the public Cloudflare gateway. Both arms retained concurrency 2 and the same container limits.
+
+| Pi workload | Existing implementation | Selected implementation |
+| --- | --- | --- |
+| Cold shopping batch | 44.39 s | 39.05 s |
+| Warm shopping batch | 13.84 s | 13.19 s |
+| Two review pages | 5.34 s | 4.99 s |
+| Total | 63.58 s | 57.23 s |
+
+All twelve selected calls succeeded while signed in. Every product section, category search, category details and review result matched the baseline semantically. The free-text search supplied a changed first-page membership in the later arm; repeating it with the unchanged deployed implementation returned exactly the same current results, confirming upstream variation. The measured total improvement is approximately 10%, not a promise of that reduction for every request. Broader claims that most hydration time can simply be removed are unsupported.
+
+Validation covers 158 automated tests, typechecking, build, and signed-in MCP smoke checks in Docker and on the native host. Mutation checks confirm that stale final identity verification and incomplete variant snapshots are rejected. A local Docker smoke run also encountered a real challenge before product hydration and recovered through FlareSolverr while retaining signed-in results; this is evidence for the retained recovery path, not a long-term CAPTCHA frequency estimate.
+
+Diagnostic source probes and CPU profiles remain under Git-ignored `.artifacts/platform-diagnosis/`; optimization comparisons, rejected candidates, mutation checks and local validation reports are under `.artifacts/dom-optimization/`. No memory limits or memory-monitoring behavior were changed.

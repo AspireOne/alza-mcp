@@ -10,7 +10,7 @@ const available = (data: unknown): Section<unknown> => ({ state: "available", da
 const absent: Section<unknown> = { state: "not_provided" };
 type HtmlProductSection = Exclude<ProductSection, "reliability">;
 export function parseProduct(html: string, url: string, id: number, signedIn: boolean, requested: HtmlProductSection[] = PRODUCT_SECTIONS.filter(section => section !== "reliability")): Product {
-  const $ = load(html), bootstrap = pageData(html), detail = object(bootstrap.data), ld = jsonLd(html, "Product");
+  const $ = load(html), bootstrap = pageData($), detail = object(bootstrap.data), ld = jsonLd($, "Product");
   if (!ld || detail.cid !== id || productId(url) !== id) fail("PRODUCT_ID_MISMATCH", "The page does not describe the requested product ID.");
   const name = string(ld.name) || text($("h1").first().text());
   if (!name) fail("SCHEMA_CHANGED", "The product name was not found.");
@@ -47,6 +47,7 @@ export function parseProduct(html: string, url: string, id: number, signedIn: bo
     variants: () => {
       const snapshot = $('#alza-mcp-variant-options').text();
       if (snapshot) return available({ groups: JSON.parse(snapshot), note: "Option labels and price differences are as shown by Alza; select another product ID through search for its full detail." });
+      if ($('[data-testid="detailVariantSelectComponentOpenOptionsButton"]').length) fail("SECTION_INCOMPLETE", "Variant controls were present but their complete options could not be read.");
       const variants = new Map<number, { id: number; name: string; url: string }>();
       for (const el of $('.detailVariants a[href], [data-alza-variant-snapshot] a[href]').toArray()) {
         const n = $(el), href = n.attr("href")!; let variantId: number | null;

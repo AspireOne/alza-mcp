@@ -3,7 +3,7 @@ import JSON5 from "json5";
 import type { Category, Facet, SearchQuery, Sort } from "../domain/contracts.js";
 import { alzaUrl, BASE_URL } from "../infra/urls.js";
 import { fail } from "../infra/failure.js";
-import { object, pageData, text } from "./html.js";
+import { htmlDocument, object, pageData, text, type HtmlSource } from "./html.js";
 import { listings } from "./listings.js";
 
 const SORT_CODES: Record<Sort, number> = { relevance: 0, bestselling: 7, price_asc: 1, price_desc: 2, rating: 6, newest: 5 };
@@ -16,8 +16,8 @@ export function searchUrl(query: SearchQuery): string {
   }
   return `${BASE_URL}/${query.category_id}.htm`;
 }
-export function categories(html: string, children = false): Category[] {
-  const $ = load(html), found = new Map<number, Category>();
+export function categories(html: HtmlSource, children = false): Category[] {
+  const $ = htmlDocument(html), found = new Map<number, Category>();
   const selectors = children ? '[data-testid="category-tile"] a, .category-tiles__categories a, .subCategoriesList a, .subCategories a, .subcategory a, [class*=subcategory] a' : 'li[class*="category-naviga"] a, .category-tree a, .subCategoriesList a';
   for (const el of $(selectors).toArray()) {
     const link = $(el), href = link.attr("href"), name = text(link.text());
@@ -29,8 +29,8 @@ export function categories(html: string, children = false): Category[] {
 }
 
 interface Definition { name: string; values: Array<{ id: number; text: string; count: number; value: number | string; type?: string }> }
-export function parameterDefinitions(html: string): Record<string, Definition> {
-  const $ = load(html), result: Record<string, Definition> = {};
+export function parameterDefinitions(html: HtmlSource): Record<string, Definition> {
+  const $ = htmlDocument(html), result: Record<string, Definition> = {};
   for (const el of $("script").toArray()) {
     const source = $(el).text();
     for (const match of source.matchAll(/_parameterTypes\[(\d+)\]\s*=\s*\{/g)) {
@@ -51,8 +51,8 @@ export function parameterDefinitions(html: string): Record<string, Definition> {
   }
   return result;
 }
-export function facets(html: string): Facet[] {
-  const $ = load(html), defs = parameterDefinitions(html), found = new Map<number, Facet>();
+export function facets(html: HtmlSource): Facet[] {
+  const $ = htmlDocument(html), defs = parameterDefinitions($), found = new Map<number, Facet>();
   for (const el of $(".parameter[data-parameterid]").toArray()) {
     const node = $(el), id = Number(node.attr("data-parameterid"));
     if (!Number.isSafeInteger(id) || id <= 0 || found.has(id)) continue;
@@ -69,22 +69,22 @@ export function facets(html: string): Facet[] {
   }
   return [...found.values()];
 }
-export function manufacturers(html: string): Array<{ id: number; name: string }> {
-  const $ = load(html);
+export function manufacturers(html: HtmlSource): Array<{ id: number; name: string }> {
+  const $ = htmlDocument(html);
   return $(".parameterValue.producer").toArray().map(e => ({ id: Number($(e).find("input").attr("value")), name: text($(e).find(".name").text()) })).filter(v => v.id > 0 && v.name);
 }
-export function sortOrders(html: string): Sort[] {
-  const $ = load(html), codes = new Set($("a[data-sort]").toArray().map(el => Number($(el).attr("data-sort"))));
+export function sortOrders(html: HtmlSource): Sort[] {
+  const $ = htmlDocument(html), codes = new Set($("a[data-sort]").toArray().map(el => Number($(el).attr("data-sort"))));
   return (Object.keys(SORT_CODES) as Sort[]).filter(sort => codes.has(SORT_CODES[sort]));
 }
 
-export function filterRequest(html: string, query: SearchQuery, page: number): Record<string, any> {
-  const $ = load(html), bootstrap = pageData(html), data = object(bootstrap.data), filters = query.filters ?? {};
+export function filterRequest(html: HtmlSource, query: SearchQuery, page: number): Record<string, any> {
+  const $ = htmlDocument(html), bootstrap = pageData($), data = object(bootstrap.data), filters = query.filters ?? {};
   if (typeof data.categoryTypeId !== "number" || typeof bootstrap.categoryId !== "number") fail("SCHEMA_CHANGED", "Alza's catalog filter bootstrap was not recognized.");
   if (query.category_id && bootstrap.categoryId !== query.category_id) fail("UNSUPPORTED_FILTER", "Alza did not apply the requested category restriction.");
-  const requestedSort = query.sort ?? "relevance", sort = SORT_CODES[requestedSort], availableSorts = sortOrders(html);
+  const requestedSort = query.sort ?? "relevance", sort = SORT_CODES[requestedSort], availableSorts = sortOrders($);
   if (!availableSorts.includes(requestedSort)) fail("UNSUPPORTED_FILTER", "This listing does not support the requested sort order.", { sort_orders: availableSorts });
-  const available = facets(html);
+  const available = facets($);
   const parameters = (filters.facets ?? []).map(selected => {
     const facet = available.find(f => f.id === selected.id);
     if (!facet) fail("UNSUPPORTED_FILTER", `Unknown category facet ${selected.id}. Use get_category to discover values.`);
@@ -100,7 +100,7 @@ export function filterRequest(html: string, query: SearchQuery, page: number): R
     const values = selected.values.map(id => { const input = inputs.find(e => ($(e).attr("data-key") ?? $(e).attr("value")) === id); return input ? $(input).attr("value") : id; });
     return { from: null, to: null, orderFrom: null, orderTo: null, typeId: facet.id, values, valueIds: selected.values };
   });
-  const makers = manufacturers(html);
+  const makers = manufacturers($);
   if (filters.manufacturers?.some(id => !makers.some(m => m.id === id))) fail("UNSUPPORTED_FILTER", "An unknown manufacturer filter was requested.");
   const commodityWears = (filters.condition ?? []).flatMap(condition => {
     const value = $(`#${CONDITION_IDS[condition]}`).attr("data-value");
@@ -139,7 +139,7 @@ export function parseFilter(raw: unknown, page: number, signedIn = false): { pro
   return { products, total: d.Count as number, next: pager("a.next").length > 0 };
 }
 export function parseRenderedSearch(html: string, page: number, query: SearchQuery, signedIn = false): { products: ReturnType<typeof listings>; total: number | null; next: boolean } {
-  const $ = load(html), data = object(pageData(html).data), products = listings(html, signedIn);
+  const $ = load(html), data = object(pageData($).data), products = listings($, signedIn);
   const current = $("a.pgn.sel, [aria-current=page].pgn").first();
   if (products.length && (current.length ? Number(current.text()) !== page : page !== 1 || $("a.pgn").length > 0)) fail("PAGINATION_STALLED", "Recovery did not render the requested result page.");
   if (!products.length && data.isEmpty !== true) fail("INCOMPLETE_RESULTS", "Recovery returned no listings without confirming an empty search.");

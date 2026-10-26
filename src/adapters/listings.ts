@@ -1,8 +1,8 @@
-import { load, type CheerioAPI } from "cheerio";
+import { type CheerioAPI } from "cheerio";
 import type { Listing, Offer } from "../domain/contracts.js";
 import { fail } from "../infra/failure.js";
 import { alzaUrl, productId } from "../infra/urls.js";
-import { text } from "./html.js";
+import { htmlDocument, text, type HtmlSource } from "./html.js";
 
 export function money(value: unknown): string | null {
   if (typeof value === "number") {
@@ -54,8 +54,8 @@ export function promotionalOffers($: CheerioAPI, scope: ReturnType<CheerioAPI>, 
   }
   return result;
 }
-export function listings(html: string, signedIn = false): Listing[] {
-  const $ = load(html), result: Listing[] = [], seen = new Set<number>();
+export function listings(html: HtmlSource, signedIn = false): Listing[] {
+  const $ = htmlDocument(html), result: Listing[] = [], seen = new Set<number>();
   for (const node of $(".browsingitem").toArray()) {
     const card = $(node), id = Number(card.attr("data-id")), link = card.find("a.name").first();
     if (!Number.isSafeInteger(id) || id <= 0 || !text(link.text()) || !link.attr("href")) fail("PARSE_ERROR", "An Alza listing is missing its identity or name.");
