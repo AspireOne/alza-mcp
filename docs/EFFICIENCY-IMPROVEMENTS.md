@@ -1,6 +1,8 @@
 # Efficiency improvements
 
-This is the canonical record of the browser/Docker efficiency investigation: requirements, evidence, experiments, unresolved questions, and the direction for further work. Update the relevant sections as findings change. Deployment and logging instructions belong in the [README](../README.md#configuration-and-local-development); architectural contracts belong in [ARCHITECTURE.md](../ARCHITECTURE.md).
+This is the canonical record of the completed browser/Docker efficiency investigation: requirements, evidence, experiments, decisions, and remaining limitations. Deployment and logging instructions belong in the [README](../README.md#configuration-and-local-development); architectural contracts belong in [ARCHITECTURE.md](../ARCHITECTURE.md).
+
+**Status: finished by user decision on 2026-10-26.** The selected changes are implemented, validated and deployed. Remaining Pi latency is accepted for this effort. The German-server/Tailscale option is deferred, and no further optimization work or extended trial is planned.
 
 Last reconciled on 2026-10-26 with the production logs, local environment fixes, two-request concurrency, and the Pi/desktop profiling and optimization comparisons below. The logged shopping session used logging commit `f25433f`; it preceded the efficiency changes.
 
@@ -18,7 +20,7 @@ Improve response speed and resource efficiency while preserving the deployed sys
 
 The existing Pi deployment is the reliability baseline. The user reports that it has worked very well over an extended period without CAPTCHA interruptions; slow requests are the known issue. Do not start by rebuilding or re-proving that baseline, removing its solvers, or replacing its browser stack.
 
-Theory, source inspection, and focused local experiments should guide changes. A 48-hour deployment pilot can confirm a selected improvement; long-running experiments must not substitute for design work. No longer trial is currently agreed.
+Theory, source inspection, and focused local experiments guided the changes, followed by bounded deployment comparisons. The effort closed without an extended pilot.
 
 ## What the subagents investigated
 
@@ -189,9 +191,9 @@ The machine-local adaptation maps only names still confirmed as DNS sinkholes to
 
 The service start/restart and offline reconciliation tests passed. An actual WSL reboot has not been performed because it would interrupt the user's session. Local evidence and rollback instructions are under `.artifacts/local-environment/`; signed-in smoke reports are under `.artifacts/local-stack/reports/`. These contain machine-local evidence and are not committed.
 
-## Optimization direction and validation
+## Optimization principles and validation criteria
 
-Prioritize changes that remove known extra work while preserving the successful access/recovery architecture:
+The investigation prioritized removing known extra work while preserving the successful access/recovery architecture:
 
 1. **Attribute latency using the implemented logs.** Correlate end-to-end duration, queueing, provider attempts, navigation, hydration, cache behavior, and resource observations. Distinguish detected challenges from timeouts and cooldowns.
 2. **Avoid duplicate homepage navigation.** Fresh target HTML already contains account evidence. Use that evidence where equivalent; retain a fresh verification path for cache-only and JSON-first operations. Do not trust cookie presence or stale retained DOM as proof of current account identity.
@@ -204,7 +206,7 @@ Keep automatic solvers and their eligibility rules until a replacement is demons
 
 Validation must cover expired/wrong-account sessions on cache hits, JSON-first verification, incomplete required content, partial-then-full product cache use, statistics identity/context, challenge recovery, timeouts, cancellation, crashes, and persistence across restart. Local execution is now reproducible through the Docker/native harness above; the remaining environmental check is service behavior after a real WSL reboot.
 
-The existing deployment can serve as the comparison baseline without deploying another baseline stack. If a candidate warrants a 48-hour pilot, use bounded realistic shopping bursts, isolated writable profiles, and signed-in semantic assertions. Report complete shopping-session success, latency, unresolved challenges, recovery recurrence, and resources. Do not count anonymous fallback or human repair as success. A clean 48-hour run is useful confirmation, not proof of long-term CAPTCHA immunity.
+Deployment comparisons used isolated writable profiles and signed-in semantic assertions against the existing implementation. Anonymous fallback and human repair did not count as successful validation. These bounded checks establish the observed results below, without proving long-term CAPTCHA immunity.
 
 ## First implementation milestone
 
