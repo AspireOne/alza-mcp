@@ -30,6 +30,8 @@ type Continuation = (SearchState | ReviewState) & { context: string; auth: AuthM
 interface Cached { value: unknown; at: number; sources: string[] }
 const cursorState = z.object({ id: z.string().uuid(), auth: authSchema });
 const PARTIAL_ONLY = new Set(["SCHEMA_CHANGED", "PARSE_ERROR", "SECTION_INCOMPLETE", "UPSTREAM_ERROR"]);
+const DETAIL_HYDRATION = ["description", "specifications", "variants"] as const;
+const PRODUCT_CACHE_MS = 60_000;
 
 export class Research {
   private readonly continuations = new TtlCache<string, Continuation>(3_600_000, 1000);
@@ -89,6 +91,7 @@ export class Research {
   private async cached<T>(reader: Reader, op: Operation, key: string, ttl: number, loader: () => Promise<T>): Promise<T> {
     const cacheKey = `${reader.context}:${reader.provider}:${key}`, cached = this.cache.get(cacheKey);
     if (cached && Date.now() - cached.at < ttl) {
+      await reader.verify?.();
       log.info("cache.hit", { request_id: op.id, provider: reader.provider, age_ms: Date.now() - cached.at });
       op.meta.cache = { hit: true, age_ms: Math.max(op.meta.cache.age_ms, Date.now() - cached.at) };
       op.meta.fetched_at = new Date(Math.min(Date.parse(op.meta.fetched_at), cached.at)).toISOString(); op.meta.sources.push(...cached.sources);
@@ -157,8 +160,16 @@ export class Research {
       id = found[0]!;
     }
     if (!id) fail("INVALID_INPUT", "The URL must contain a numeric Alza product ID.");
-    const doc = await this.cached(reader, op, `product:${id}`, 60_000, () => reader.page(productUrl(id!), { detail: true }));
     const sections = input.sections ?? [...PRODUCT_SECTIONS];
+    // Specifications and downloads can appear in either lazy tab; media also uses the description.
+    const hydration = DETAIL_HYDRATION.filter(section =>
+      section === "description" ? sections.some(requested => ["description", "media", "documents", "specifications"].includes(requested)) :
+      section === "specifications" ? sections.some(requested => ["specifications", "documents"].includes(requested)) :
+      section === "variants" && sections.includes(section));
+    const fullKey = `product:${id}:${DETAIL_HYDRATION.join(",")}`;
+    const full = this.cache.get(`${reader.context}:${reader.provider}:${fullKey}`);
+    const coverage = full && Date.now() - full.at < PRODUCT_CACHE_MS ? DETAIL_HYDRATION : hydration;
+    const doc = await this.cached(reader, op, `product:${id}:${coverage.join(",")}`, PRODUCT_CACHE_MS, () => reader.page(productUrl(id!), { detail: coverage }));
     const product = parseProduct(doc.html, doc.url, id, op.meta.auth.state === "signed_in", sections.filter(section => section !== "reliability"));
     if (sections.includes("reliability")) {
       try {

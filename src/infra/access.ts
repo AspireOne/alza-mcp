@@ -66,18 +66,34 @@ export class AccessCoordinator implements Access {
           op.meta.cache = { hit: false, age_ms: 0 };
           op.meta.fetched_at = new Date().toISOString();
           op.meta.auth.state = "unverified";
+          const read = async (reader: Reader) => {
+            if (expectedContext && reader.context !== expectedContext) fail("CONTEXT_CHANGED", "Recovery changed the traversal context.");
+            op.meta.provider = provider;
+            return work(reader);
+          };
+          let result: T;
           if (provider === "browser") {
-            try { resource = await op.step("browser.prepare", { provider, profile: kind }, () => this.browser.reader(op, kind, deadline)); }
+            try {
+              resource = await op.step("browser.prepare", { provider, profile: kind }, () => this.browser.reader(op, kind, deadline));
+              result = await read(resource.reader);
+            }
             catch (error) {
               const failure = failureOf(error);
-              if (failure.code !== "AUTH_REQUIRED" || op.auth !== "preferred") throw error;
+              if (failure.code !== "AUTH_REQUIRED" || op.auth !== "preferred" || kind !== "account") throw error;
               recordFailure(failure.code, failure.message, provider);
               log.warn("access.auth_fallback", { request_id: op.id, provider, code: failure.code, profile: "anonymous" });
               op.meta.attempts.push({ provider, outcome: "failed", code: "AUTH_REQUIRED", duration_ms: Date.now() - started });
               if (expectedContext) fail("CONTEXT_CHANGED", "The account session expired. Start a new traversal.");
+              if (resource) {
+                await op.step("provider.dispose", { provider }, () => resource!.dispose());
+                resource = undefined;
+              }
               kind = "anonymous";
+              op.meta.auth.state = "unverified";
+              op.meta.cache = { hit: false, age_ms: 0 };
               op.meta.warnings.push({ code: "AUTH_REQUIRED", message: "The configured account session expired. Public prices are being used." });
               resource = await op.step("browser.prepare", { provider, profile: kind }, () => this.browser.reader(op, kind, deadline));
+              result = await read(resource.reader);
             }
           } else {
             // Persist and release Chromium before starting another browser on
@@ -87,10 +103,8 @@ export class AccessCoordinator implements Access {
             const storage = account ? await this.store.importedStorage() : undefined;
             const cookies = storage?.cookies.map(({ expires, ...cookie }) => ({ ...cookie, ...(expires > 0 ? { expiry: Math.floor(expires) } : {}) }));
             resource = await op.step("solver.prepare", { provider }, () => solverReader(provider, endpoint!, op, deadline, account, cookies));
+            result = await read(resource.reader);
           }
-          if (expectedContext && resource.reader.context !== expectedContext) fail("CONTEXT_CHANGED", "Recovery changed the traversal context.");
-          op.meta.provider = provider;
-          const result = await work(resource.reader);
           op.check();
           op.meta.attempts.push({ provider, outcome: "success", duration_ms: Date.now() - started });
           if (challengeStartedAt !== undefined) {

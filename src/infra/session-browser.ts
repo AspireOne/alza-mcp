@@ -6,7 +6,7 @@ import { classifyResponse, decodeJson, object, pageData } from "../adapters/html
 import type { Config } from "./config.js";
 import { fail, FailureError } from "./failure.js";
 import type { Operation } from "./operation.js";
-import type { Document, Reader } from "./reader.js";
+import type { DetailSection, Document, Reader } from "./reader.js";
 import { StateStore, type Storage } from "./state.js";
 import { alzaUrl, BASE_URL, FILTER_PATH } from "./urls.js";
 import { log } from "./logger.js";
@@ -73,9 +73,11 @@ export class SessionBrowser {
       }
     };
     const expected = kind === "account" ? this.store.account : undefined;
-    const verify = (html: string) => { op.meta.auth.state = verifyIdentity(html, expected); };
+    let verified = false;
+    const verify = (html: string) => { op.meta.auth.state = verifyIdentity(html, expected); verified = true; };
     const reader: Reader = {
       provider: "browser", canPost: true, context: expected ? `account:${expected.generation}` : "anonymous",
+      verify: async () => { if (!verified) await reader.page(BASE_URL); },
       page: async (url, options) => op.step("browser.page", { provider: "browser", path: new URL(url).pathname }, async () => {
         try {
           alzaUrl(url);
@@ -86,7 +88,8 @@ export class SessionBrowser {
           classifyResponse(response?.status() ?? null, headers, html);
           alzaUrl(page.url());
           verify(html);
-          if (options?.detail) await op.step("browser.hydrate_detail", { provider: "browser" }, () => hydrateDetail(page, remaining, op));
+          const detail = options?.detail;
+          if (detail?.length) await op.step("browser.hydrate_detail", { provider: "browser" }, () => hydrateDetail(page, remaining, op, detail));
           if (options?.stock && typeof object(pageData(html).data).categoryTypeId === "number") {
             await op.step("browser.wait_stock", { provider: "browser" }, () => page.locator("label").filter({ hasText: "Skladem kdekoliv" }).locator('input[type="radio"]').first()
               .waitFor({ timeout: Math.min(remaining(), 5000) })).catch(() => {});
@@ -102,6 +105,7 @@ export class SessionBrowser {
       json: async (url, body) => op.step("browser.json", { provider: "browser", path: new URL(url).pathname, method: body === undefined ? "GET" : "POST" }, async () => {
         const target = alzaUrl(url);
         if (body !== undefined && new URL(target).pathname !== FILTER_PATH) fail("INVALID_INPUT", "Only the read-only catalog filter POST is supported.");
+        await reader.verify!();
         const timeout = remaining();
         const result = await network(() => page.evaluate(async ({ target, body, timeout }) => {
           const response = await fetch(target, {
@@ -118,30 +122,31 @@ export class SessionBrowser {
         return decodeJson(result.text);
       }),
     };
-    try {
-      // A fresh first-party page verifies authentication even for cached/public API results.
-      await reader.page(BASE_URL);
-    } catch (error) { clearTimeout(timer); op.signal.removeEventListener("abort", close); await page.close().catch(() => {}); throw error; }
     return { reader, dispose: async () => { clearTimeout(timer); op.signal.removeEventListener("abort", close); await page.close().catch(() => {}); } };
   }
   status(): unknown { return { running: !!this.context, profile: this.kind ?? null }; }
   async close(): Promise<void> { const context = this.context; this.context = undefined; this.kind = undefined; await context?.close(); }
 }
 
-async function hydrateDetail(page: Page, remaining: () => number, op: Operation): Promise<void> {
+async function hydrateDetail(page: Page, remaining: () => number, op: Operation, sections: readonly DetailSection[]): Promise<void> {
+  const parametersNeeded = sections.includes("specifications");
+  const descriptionNeeded = sections.includes("description");
+  const variantsNeeded = sections.includes("variants");
   // Tabs trigger the same read-only requests used by the storefront. Preserve both loaded sections.
-  for (const selector of ["#hlTabParameters", 'a[href="#description"]']) {
+  const tabs = [...(parametersNeeded ? ["#hlTabParameters"] : []), ...(descriptionNeeded ? ['a[href="#description"]'] : [])];
+  for (const selector of tabs) {
     const link = page.locator(selector).first();
     if (!await link.count()) continue;
     await op.step("browser.detail_tab", { selector }, () => link.click({ timeout: Math.min(remaining(), 3000) })).catch(() => {});
   }
-  const description = page.locator("#descAnnotation");
-  if (await description.count()) await op.step("browser.detail_scroll", {}, () => description.scrollIntoViewIfNeeded({ timeout: Math.min(remaining(), 3000) })).catch(() => {});
-  await op.step("browser.detail_sections", {}, () => page.waitForFunction(() => {
+  const description = descriptionNeeded ? page.locator("#descAnnotation") : undefined;
+  if (description && await description.count()) await op.step("browser.detail_scroll", {}, () => description.scrollIntoViewIfNeeded({ timeout: Math.min(remaining(), 3000) })).catch(() => {});
+  if (parametersNeeded || descriptionNeeded) await op.step("browser.detail_sections", {}, () => page.waitForFunction(({ parametersNeeded, descriptionNeeded }) => {
     const params = document.querySelector("#parameters");
     const description = document.querySelector("#descAnnotation");
-    return (!params || !!params.querySelector(".param, table, [class*=parameter]")) && (!description || !!description.textContent?.trim());
-  }, undefined, { timeout: Math.min(remaining(), 5000) })).catch(() => {});
+    return (!parametersNeeded || !params || !!params.querySelector(".param, table, [class*=parameter]")) && (!descriptionNeeded || !description || !!description.textContent?.trim());
+  }, { parametersNeeded, descriptionNeeded }, { timeout: Math.min(remaining(), 5000) })).catch(() => {});
+  if (!variantsNeeded) return;
   const selectors = page.locator('[data-testid="detailVariantSelectComponentOpenOptionsButton"]');
   const groups: unknown[] = [];
   for (let i = 0; i < await selectors.count(); i++) {

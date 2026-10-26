@@ -13,7 +13,7 @@ import { filterRequest, categories, parseRenderedSearch } from '../src/adapters/
 const bootstrap = '<script>var _pageData = {"isUserLogged":false,"categoryId":18845887,"configurationId":3,"data":{"categoryTypeId":1,"searchTerm":"disk"}};</script><a data-sort="0"></a><a data-sort="1"></a>';
 const card = (id: number) => `<div class="browsingitem" data-id="${id}" data-code="shared"><a class="name" href="/disk-d${id}.htm">Disk ${id}</a><div class="price"><span class="js-price-box__primary-price__value">1 234,-</span></div></div>`;
 function harness(pages: Array<{ ids: number[]; total: number; next: boolean }>, html = bootstrap) {
-  let authenticated = true, checks = 0; const requests: unknown[] = [], pageOptions: Array<{ detail?: boolean; stock?: boolean } | undefined> = [];
+  let authenticated = true, checks = 0; const requests: unknown[] = [], pageOptions: Array<Parameters<Reader["page"]>[1]> = [];
   const reader: Reader = { provider: 'browser', canPost: true, context: 'account:example', page: async (url, options) => { pageOptions.push(options); return { url, html, status: 200, headers: {} }; }, json: async (_, body) => {
     requests.push(body); const i = (body as {page: number}).page - 1, p = pages[i]!;
     return { d: { Count: p.total, Page: i + 1, Boxes: p.ids.map(card).join(''), PagerBottom: p.next ? '<a class="next"></a>' : '' } };

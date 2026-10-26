@@ -133,7 +133,8 @@ describe('promotion research responses', () => {
   function research(cards = searchCards) {
     const config = configFromEnv({});
     const reader: Reader = { provider: 'browser', context: 'account:test', canPost: true,
-      page: async (target, options) => ({ url: target, html: options?.detail ? couponDetail : '<script>var _pageData={"isUserLogged":true,"categoryId":18862691,"data":{"categoryTypeId":1,"searchTerm":"magnesium"}};</script><a data-sort="0"></a>', status: 200, headers: {} }),
+      // TODO: Mock storefront transport; choose the response by destination, independently of hydration.
+      page: async target => ({ url: target, html: target.includes('-d12662568.htm') ? couponDetail : '<script>var _pageData={"isUserLogged":true,"categoryId":18862691,"data":{"categoryTypeId":1,"searchTerm":"magnesium"}};</script><a data-sort="0"></a>', status: 200, headers: {} }),
       json: async () => ({ d: { Boxes: cards, Count: 4, Page: 1, PagerBottom: '' } }),
     };
     const access: Access = { run: async (op, work) => { op.meta.auth.state = 'signed_in'; return work(reader); }, status: () => ({}), close: async () => {} };

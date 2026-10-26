@@ -17,7 +17,7 @@ async function setup(challenge = false, onCommand: () => void = () => {}) {
     const body = JSON.parse(Buffer.concat(chunks).toString()); commands.push(body);
     onCommand();
     res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify(body.cmd === 'request.get' ? { status: 'ok', solution: { status: 200, url: body.url, response: challenge ? '<title>Just a moment...</title><form id="challenge-form"></form>' : '<html><pre>{&quot;answer&quot;:42}</pre></html>' } } : { status: 'ok' }));
+    res.end(JSON.stringify(body.cmd === 'request.get' ? { status: 'ok', solution: { status: 200, url: body.url, response: challenge ? '<title>Just a moment...</title><form id="challenge-form"></form>' : '<html><script>var _pageData={"isUserLogged":false};</script><pre>{&quot;answer&quot;:42}</pre></html>' } } : { status: 'ok' }));
   });
   await new Promise<void>(r => server.listen(0, '127.0.0.1', r)); cleanup.push(() => new Promise<void>((r, reject) => server.close(e => e ? reject(e) : r())));
   const dir = await mkdtemp(join(tmpdir(), 'alza-recovery-')); cleanup.push(() => rm(dir, { recursive: true, force: true }));
@@ -27,6 +27,25 @@ async function setup(challenge = false, onCommand: () => void = () => {}) {
   return { access, commands };
 }
 describe('automatic recovery', () => {
+  it('recovers a challenge discovered during the target read after lazy browser preparation', async () => {
+    const { access } = await setup();
+    let disposed = false;
+    vi.spyOn(access.browser, 'reader').mockResolvedValue({
+      reader: {
+        provider: 'browser', context: 'anonymous', canPost: true,
+        page: async () => { throw new FailureError({ code: 'CHALLENGE_UNRESOLVED', message: 'challenge', retryable: true }); },
+        json: async () => ({}),
+      },
+      dispose: async () => { disposed = true; },
+    });
+    const op = new Operation('anonymous', 120_000);
+    try {
+      expect(await access.run(op, r => r.page('https://www.alza.cz'))).toMatchObject({ html: expect.stringContaining('answer') });
+      expect(disposed).toBe(true);
+      expect(op.meta.challenge).toMatchObject({ status: 'solved', provider: 'flaresolverr' });
+      expect(op.meta.attempts).toMatchObject([{ provider: 'browser', outcome: 'failed', code: 'CHALLENGE_UNRESOLVED' }, { provider: 'flaresolverr', outcome: 'success' }]);
+    } finally { op.dispose(); }
+  });
   it('releases the primary browser before contacting an external solver', async () => {
     let primaryRunning = true;
     const observed: boolean[] = [];
