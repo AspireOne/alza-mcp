@@ -89,7 +89,9 @@ export class SessionBrowser {
   private async createReader(op: Operation, kind: ProfileKind, deadline: number): Promise<{ reader: Reader; dispose: () => Promise<void> }> {
     op.check();
     if (Date.now() >= deadline) fail("TIMEOUT", "Primary browser budget was exhausted before startup.", { retryable: true });
-    const context = await op.step("browser.start", { provider: "browser", profile: kind, reused: !!this.slots.get(kind)?.context }, () => this.start(kind, Math.min(15_000, deadline - Date.now(), op.remaining())));
+    // A short-lived caller must not shorten a shared launch needed by another reader.
+    const context = await op.step("browser.start", { provider: "browser", profile: kind, reused: !!this.slots.get(kind)?.context },
+      () => op.waitFor(this.start(kind), Math.min(deadline, Date.now() + 15_000)));
     op.check();
     const page = await withLogContext({ queue: "interaction" }, () => this.interactions.run(op,
       () => op.step("browser.new_page", { provider: "browser" }, () => context.newPage()), deadline));
